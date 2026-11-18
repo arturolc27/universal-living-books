@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+dist-ssr/
+*.local
+
+# TypeScript
+*.tsbuildinfo
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# Python compiler artifacts
+compiler/__pycache__/
+compiler/*.pyc
+compiler/chunks.json
+compiler/traces.json
+compiler/traces_checkpoint.json
+compiler/checkpoint_progress.json
+compiler/book_meta.json
+compiler/cartridge.json
+compiler/*.pdf
+
+# Env
+.env
+.env.*
+!.env.example

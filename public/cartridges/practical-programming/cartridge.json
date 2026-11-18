@@ -1,0 +1,391 @@
+{
+  "schemaVersion": "2.0",
+  "bookId": "practical-programming-4e",
+  "metadata": {
+    "title": "Practical Programming",
+    "subtitle": "An Introduction to Computer Science Using Python 3.14",
+    "authors": ["Paul Gries", "Jennifer Campbell", "Jason Montojo"],
+    "edition": "4th Edition",
+    "difficulty": "BEGINNER",
+    "coverAccentIcon": "🪨"
+  },
+  "themeDNA": {
+    "themeName": "Zen Pragmatic Dark",
+    "mode": "dark",
+    "colors": {
+      "bgCanvas": "#0F1419",
+      "bgSurface": "#182026",
+      "bgElevated": "#222D36",
+      "borderSubtle": "#2E3C48",
+      "textPrimary": "#F1F5F9",
+      "textMuted": "#94A3B8",
+      "accentPrimary": "#38BDF8",
+      "accentSecondary": "#F59E0B",
+      "accentSuccess": "#10B981",
+      "accentDanger": "#F43F5E"
+    },
+    "typography": {
+      "editorialFont": "sans",
+      "codeFont": "JetBrains Mono"
+    }
+  },
+  "runtimeRequirements": {
+    "pythonVersion": "3.14",
+    "packages": [],
+    "enableLiveMemoryTracer": true,
+    "virtualFileSystemSeed": {
+      "planets.txt": "Mercury\nVenus\nEarth\nMars\n"
+    }
+  },
+  "glossary": {
+    "variable": {
+      "term": "variable",
+      "definition": "Nombre que referencia un objeto en memoria. En Python, asignar una variable no copia el objeto: solo enlaza el nombre a un objeto existente.",
+      "chapterIntroduced": 2,
+      "pageRef": 24,
+      "snippet": "difference = 20"
+    },
+    "object": {
+      "term": "object",
+      "definition": "Entidad en el heap con un tipo y un valor. Cada objeto tiene una identidad unica accesible mediante la funcion id().",
+      "chapterIntroduced": 2,
+      "pageRef": 25,
+      "snippet": "id(20)"
+    },
+    "namespace": {
+      "term": "namespace",
+      "definition": "Espacio aislado de nombres creado al llamar una funcion. Las variables locales nacen y mueren dentro de ese frame.",
+      "chapterIntroduced": 3,
+      "pageRef": 41
+    },
+    "aliasing": {
+      "term": "aliasing",
+      "definition": "Dos o mas nombres que referencian el mismo objeto. Mutar a traves de un alias afecta a todos los demas.",
+      "chapterIntroduced": 2,
+      "pageRef": 30
+    },
+    "precedence": {
+      "term": "precedence",
+      "definition": "Orden en que Python evalua los operadores. La exponenciacion ** se evalua antes que la negacion unaria y la multiplicacion.",
+      "chapterIntroduced": 2,
+      "pageRef": 28
+    }
+  },
+  "achievements": [
+    {
+      "id": "first-memory-trace",
+      "title": "Observador de Memoria",
+      "description": "Completa tu primer reto User-as-CPU conectando una variable con su objeto en el heap.",
+      "iconKey": "brain",
+      "rule": { "metric": "FIRST_TRY_STREAK", "threshold": 1 }
+    },
+    {
+      "id": "fdr-master",
+      "title": "Disenador de Funciones",
+      "description": "Supera la auditoria AST de una funcion con doctest en el laboratorio FDR.",
+      "iconKey": "sparkles",
+      "rule": { "metric": "AST_MASTERY", "threshold": 1 }
+    },
+    {
+      "id": "srs-starter",
+      "title": "Repaso Constante",
+      "description": "Completa 3 repasos SM-2 en el companero movil.",
+      "iconKey": "trophy",
+      "rule": { "metric": "SRS_REVIEWS", "threshold": 3 }
+    }
+  ],
+  "chapters": [
+    {
+      "chapterId": "pp-ch2",
+      "number": 2,
+      "title": "Variables y Modelo de Memoria",
+      "summary": "Comprende como Python enlaza nombres a objetos en el heap y como la reasignacion cambia esos enlaces.",
+      "microLessons": [
+        {
+          "lessonId": "pp-ch2-l1",
+          "order": 1,
+          "title": "Nombres, Objetos y Reasignacion",
+          "estimatedMinutes": 12,
+          "blocks": [
+            {
+              "blockId": "pp-ch2-l1-prose-1",
+              "type": "PROSE",
+              "markdown": "En Python, una [[variable]] no es una caja que contiene un valor: es un nombre que referencia un [[object]] en el heap. Cuando escribes `difference = 20`, Python crea (o reutiliza) el objeto entero 20 y enlaza el nombre `difference` a el.\n\nSi luego escribes `double = 2 * difference`, se crea un nuevo objeto 40 y `double` apunta a el. El objeto original 20 permanece intacto mientras algun nombre lo referencie.",
+              "callout": {
+                "kind": "BOOK_NOTE",
+                "title": "Nota del Autor",
+                "body": "Las variables locales nacen y mueren dentro del frame de la funcion. Reasignar un nombre nunca modifica el objeto anterior: solo cambia a que objeto apunta."
+              }
+            },
+            {
+              "blockId": "pp-ch2-l1-predict-1",
+              "type": "OUTPUT_PREDICTION",
+              "gatesNextBlock": true,
+              "prompt": "Predice el valor final de la variable `difference` tras ejecutar estas tres lineas.",
+              "codeSnippet": "difference = 20\ndouble = 2 * difference\ndifference = 5",
+              "options": ["5", "20", "40", "10"],
+              "correctOptionIndex": 0,
+              "expectedReturnType": "int",
+              "explanation": "La ultima asignacion reenlaza el nombre `difference` al objeto 5. El objeto 20 sigue existiendo porque `double` no lo referencia (double apunta a 40), pero `difference` ya no lo alcanza.",
+              "linkedFlashcardId": "pp-card-reassign"
+            },
+            {
+              "blockId": "pp-ch2-l1-viz-1",
+              "type": "INTERACTIVE_VISUALIZER",
+              "visualizerKind": "MEMORY_MODEL",
+              "title": "Frames | Objects: Reasignacion",
+              "codeContext": "difference = 20\ndouble = 2 * difference\ndifference = 5",
+              "payload": {
+                "memorySteps": [
+                  {
+                    "stepIndex": 0,
+                    "lineNumber": 1,
+                    "explanation": "Se crea el objeto 20 y el nombre difference lo referencia.",
+                    "frames": [
+                      { "name": "<module>", "isCurrent": true, "variables": { "difference": "id1" } }
+                    ],
+                    "heap": [
+                      { "id": "id1", "type": "int", "value": "20", "status": "NEW" }
+                    ]
+                  },
+                  {
+                    "stepIndex": 1,
+                    "lineNumber": 2,
+                    "explanation": "Se calcula 2 * 20 y se crea un nuevo objeto 40 referenciado por double.",
+                    "frames": [
+                      { "name": "<module>", "isCurrent": true, "variables": { "difference": "id1", "double": "id2" } }
+                    ],
+                    "heap": [
+                      { "id": "id1", "type": "int", "value": "20", "status": "ACTIVE" },
+                      { "id": "id2", "type": "int", "value": "40", "status": "NEW" }
+                    ]
+                  },
+                  {
+                    "stepIndex": 2,
+                    "lineNumber": 3,
+                    "explanation": "El nombre difference se reenlaza al nuevo objeto 5. El objeto 20 queda huerfano.",
+                    "frames": [
+                      { "name": "<module>", "isCurrent": true, "variables": { "difference": "id3", "double": "id2" } }
+                    ],
+                    "heap": [
+                      { "id": "id1", "type": "int", "value": "20", "status": "ORPHANED" },
+                      { "id": "id2", "type": "int", "value": "40", "status": "ACTIVE" },
+                      { "id": "id3", "type": "int", "value": "5", "status": "NEW" }
+                    ],
+                    "interactiveDragTask": {
+                      "fromFrame": "<module>",
+                      "variable": "difference",
+                      "expectedHeapId": "id3",
+                      "hint": "Tras la reasignacion, difference apunta al objeto 5 (id3), no al 20 original."
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "blockId": "pp-ch2-l1-ast-1",
+              "type": "INTERACTIVE_VISUALIZER",
+              "visualizerKind": "AST_COLLAPSER",
+              "title": "Precedencia: -2 ** 4 + 3 * 5",
+              "codeContext": "-2 ** 4 + 3 * 5",
+              "payload": {
+                "astTokens": {
+                  "tokens": ["-", "2", "**", "4", "+", "3", "*", "5"],
+                  "tapOrder": [2, 6, 0, 4],
+                  "collapses": ["2 ** 4 = 16", "3 * 5 = 15", "-16", "-16 + 15 = -1"],
+                  "explanations": ["La exponenciacion tiene mayor precedencia", "La multiplicacion va antes que la suma", "La negacion unaria se aplica despues de **", "Suma final"]
+                }
+              }
+            },
+            {
+              "blockId": "pp-ch2-l1-lab-1",
+              "type": "CODE_LAB",
+              "title": "Laboratorio: Leer planets.txt",
+              "instructions": "Abre el archivo planets.txt del Virtual FS, lee su contenido y cuenta cuantos planetas contiene. Imprime el conteo.",
+              "scaffoldMode": "FREE_SANDBOX",
+              "starterCode": "with open('planets.txt', 'r') as f:\n    content = f.read()\n\nplanets = [line for line in content.splitlines() if line.strip()]\nprint(len(planets))\n",
+              "targetFileName": "main.py",
+              "unitTestCode": "assert len(planets) == 4, 'Deben contarse 4 planetas'\nassert planets[0] == 'Mercury'\n",
+              "linkedFlashcardId": "pp-card-file"
+            },
+            {
+              "blockId": "pp-ch2-l1-parsons-1",
+              "type": "PARSONS_PROBLEM",
+              "prompt": "Reconstruye el codigo que lee planets.txt y cuenta sus lineas no vacias.",
+              "blocks": [
+                { "id": "p1", "code": "with open('planets.txt', 'r') as f:", "correctOrder": 0, "correctIndent": 0, "isDistractor": false },
+                { "id": "p2", "code": "content = f.read()", "correctOrder": 1, "correctIndent": 1, "isDistractor": false },
+                { "id": "p3", "code": "planets = [line for line in content.splitlines() if line.strip()]", "correctOrder": 2, "correctIndent": 0, "isDistractor": false },
+                { "id": "p4", "code": "print(len(planets))", "correctOrder": 3, "correctIndent": 0, "isDistractor": false },
+                { "id": "p5", "code": "print(content.count('Mercury'))", "correctOrder": -1, "correctIndent": 0, "isDistractor": true }
+              ],
+              "linkedFlashcardId": "pp-card-file"
+            },
+            {
+              "blockId": "pp-ch2-l1-card-1",
+              "type": "FLASHCARD",
+              "cardId": "pp-card-reassign",
+              "frontMarkdown": "¿Que ocurre en memoria cuando reasignas una variable en Python?",
+              "backMarkdown": "El nombre se reenlaza a un nuevo objeto. El objeto anterior no se modifica; si nadie mas lo referencia, queda huerfano y el recolector de basura puede liberarlo.",
+              "codeExample": "x = 20\nx = 5  # x ahora apunta al objeto 5",
+              "tags": ["memoria", "variables", "reasignacion"]
+            },
+            {
+              "blockId": "pp-ch2-l1-card-2",
+              "type": "FLASHCARD",
+              "cardId": "pp-card-aliasing",
+              "frontMarkdown": "¿Que es el aliasing y por que es peligroso?",
+              "backMarkdown": "Ocurre cuando dos nombres referencian el mismo objeto mutable. Mutar a traves de un alias afecta a todos los nombres que apuntan a ese objeto.",
+              "codeExample": "a = [1, 2]\nb = a\nb.append(3)  # a tambien es [1, 2, 3]",
+              "tags": ["aliasing", "mutabilidad", "listas"]
+            },
+            {
+              "blockId": "pp-ch2-l1-card-3",
+              "type": "FLASHCARD",
+              "cardId": "pp-card-precedence",
+              "frontMarkdown": "¿Cual es el resultado de `-2 ** 4` en Python?",
+              "backMarkdown": "Es -16, no 16. La exponenciacion ** tiene mayor precedencia que la negacion unaria, por lo que se evalua 2 ** 4 = 16 y luego se aplica el signo negativo.",
+              "codeExample": "-2 ** 4  # -16\n(-2) ** 4  # 16",
+              "tags": ["precedencia", "operadores"]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "chapterId": "pp-ch3",
+      "number": 3,
+      "title": "Diseno de Funciones (FDR)",
+      "summary": "Aplica la Function Design Recipe para disenar funciones con ejemplos, header tipado, docstring, cuerpo y pruebas.",
+      "microLessons": [
+        {
+          "lessonId": "pp-ch3-l1",
+          "order": 1,
+          "title": "Namespaces Aislados en Llamadas",
+          "estimatedMinutes": 14,
+          "blocks": [
+            {
+              "blockId": "pp-ch3-l1-prose-1",
+              "type": "PROSE",
+              "markdown": "Cuando Python ejecuta una llamada `f(x + 1)`, crea un [[namespace]] aislado para esa invocacion. Los parametros y las variables locales viven dentro de ese frame y desaparecen al retornar.\n\nEn la expresion `x = f(x + 1) + f(x + 2)`, Python evalua primero `f(x + 1)`, luego `f(x + 2)`, y finalmente suma ambos resultados. Cada llamada tiene su propio frame independiente.",
+              "callout": {
+                "kind": "TIP",
+                "title": "Trazado Mental",
+                "body": "Antes de ejecutar, dibuja los frames: cada llamada a f crea una caja nueva con su propio parametro x. No comparten estado."
+              }
+            },
+            {
+              "blockId": "pp-ch3-l1-viz-1",
+              "type": "INTERACTIVE_VISUALIZER",
+              "visualizerKind": "MEMORY_MODEL",
+              "title": "Frames Anidados: f(x + 1) + f(x + 2)",
+              "codeContext": "def f(x: int) -> int:\n    x = 2 * x\n    return x\n\nx = 1\nres = f(x + 1) + f(x + 2)",
+              "payload": {
+                "memorySteps": [
+                  {
+                    "stepIndex": 0,
+                    "lineNumber": 5,
+                    "explanation": "Se define la funcion f y se enlaza el nombre x al objeto 1.",
+                    "frames": [
+                      { "name": "<module>", "isCurrent": true, "variables": { "f": "id1", "x": "id2" } }
+                    ],
+                    "heap": [
+                      { "id": "id1", "type": "function", "value": "f(x)", "status": "NEW" },
+                      { "id": "id2", "type": "int", "value": "1", "status": "NEW" }
+                    ]
+                  },
+                  {
+                    "stepIndex": 1,
+                    "lineNumber": 6,
+                    "explanation": "Se evalua f(x + 1): se crea un frame nuevo para f con su propio parametro x = 2.",
+                    "frames": [
+                      { "name": "<module>", "isCurrent": false, "variables": { "f": "id1", "x": "id2" } },
+                      { "name": "f", "isCurrent": true, "variables": { "x": "id3" } }
+                    ],
+                    "heap": [
+                      { "id": "id1", "type": "function", "value": "f(x)", "status": "ACTIVE" },
+                      { "id": "id2", "type": "int", "value": "1", "status": "ACTIVE" },
+                      { "id": "id3", "type": "int", "value": "2", "status": "NEW" }
+                    ]
+                  },
+                  {
+                    "stepIndex": 2,
+                    "lineNumber": 2,
+                    "explanation": "Dentro del frame de f, x se reenlaza a 2 * 2 = 4. El x del modulo sigue siendo 1.",
+                    "frames": [
+                      { "name": "<module>", "isCurrent": false, "variables": { "f": "id1", "x": "id2" } },
+                      { "name": "f", "isCurrent": true, "variables": { "x": "id4" } }
+                    ],
+                    "heap": [
+                      { "id": "id2", "type": "int", "value": "1", "status": "ACTIVE" },
+                      { "id": "id3", "type": "int", "value": "2", "status": "ORPHANED" },
+                      { "id": "id4", "type": "int", "value": "4", "status": "NEW" }
+                    ],
+                    "interactiveDragTask": {
+                      "fromFrame": "f",
+                      "variable": "x",
+                      "expectedHeapId": "id4",
+                      "hint": "Dentro de f, x se reenlaza al resultado 2 * 2 = 4 (id4)."
+                    }
+                  },
+                  {
+                    "stepIndex": 3,
+                    "lineNumber": 6,
+                    "explanation": "f retorna 4. Se evalua f(x + 2) con x = 1 del modulo, creando otro frame con x = 3.",
+                    "frames": [
+                      { "name": "<module>", "isCurrent": false, "variables": { "f": "id1", "x": "id2" } },
+                      { "name": "f", "isCurrent": true, "variables": { "x": "id5" } }
+                    ],
+                    "heap": [
+                      { "id": "id2", "type": "int", "value": "1", "status": "ACTIVE" },
+                      { "id": "id5", "type": "int", "value": "3", "status": "NEW" }
+                    ]
+                  },
+                  {
+                    "stepIndex": 4,
+                    "lineNumber": 6,
+                    "explanation": "Resultado final: 4 + 6 = 10. El nombre res apunta al objeto 10.",
+                    "frames": [
+                      { "name": "<module>", "isCurrent": true, "variables": { "f": "id1", "x": "id2", "res": "id6" } }
+                    ],
+                    "heap": [
+                      { "id": "id2", "type": "int", "value": "1", "status": "ACTIVE" },
+                      { "id": "id6", "type": "int", "value": "10", "status": "NEW" }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "blockId": "pp-ch3-l1-lab-1",
+              "type": "CODE_LAB",
+              "title": "FDR: days_difference(day1, day2)",
+              "instructions": "Disena la funcion days_difference(day1, day2) que devuelve la diferencia absoluta en dias entre dos dias del mismo ano. Sigue los 5 pasos de la Function Design Recipe.",
+              "scaffoldMode": "FDR_5_STEPS",
+              "starterCode": "def days_difference(day1: int, day2: int) -> int:\n    \"\"\"Return the number of days between day1 and day2.\n\n    >>> days_difference(1, 10)\n    9\n    >>> days_difference(10, 1)\n    9\n    \"\"\"\n    return abs(day2 - day1)\n",
+              "targetFileName": "main.py",
+              "unitTestCode": "assert days_difference(1, 10) == 9\nassert days_difference(10, 1) == 9\nassert days_difference(5, 5) == 0\n",
+              "fdrGuide": {
+                "examples": ">>> days_difference(1, 10)\n9\n>>> days_difference(10, 1)\n9",
+                "header": "def days_difference(day1: int, day2: int) -> int:",
+                "description": "Return the number of days between day1 and day2.",
+                "body": "return abs(day2 - day1)",
+                "test": "assert days_difference(1, 10) == 9"
+              },
+              "linkedFlashcardId": "pp-card-fdr"
+            },
+            {
+              "blockId": "pp-ch3-l1-card-1",
+              "type": "FLASHCARD",
+              "cardId": "pp-card-fdr",
+              "frontMarkdown": "¿Cuales son los 5 pasos de la Function Design Recipe?",
+              "backMarkdown": "1) Ejemplos (>>>), 2) Header con type hints, 3) Descripcion/docstring, 4) Cuerpo de la funcion, 5) Pruebas con asserts o doctest.",
+              "codeExample": "def f(x: int) -> int:\n    \"\"\"Docstring.\"\"\"\n    return x",
+              "tags": ["fdr", "funciones", "diseno"]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,226 @@
+import { useMemo, useState } from 'react';
+import { motion } from 'framer-motion';
+import { BookOpen, Plus, Package, Layers, Sparkles, Play, Clock, Zap, Wand2 } from 'lucide-react';
+import { usePlatformStore } from '../../store/usePlatformStore';
+import { CartridgeImporterModal } from './CartridgeImporterModal';
+import { CompilerStudioModal } from './CompilerStudioModal';
+import { cn } from '../utils/cn';
+
+export function BookLibraryHub() {
+  const cartridges = usePlatformStore((s) => s.cartridges);
+  const openBook = usePlatformStore((s) => s.openBook);
+  const lessonProgressMap = usePlatformStore((s) => s.lessonProgressMap);
+  const srsStates = usePlatformStore((s) => s.srsStates);
+  const [showImporter, setShowImporter] = useState(false);
+  const [showCompiler, setShowCompiler] = useState(false);
+
+  const books = useMemo(() => Object.values(cartridges), [cartridges]);
+
+  const progressFor = (bookId: string) => {
+    const records = Object.values(lessonProgressMap).filter((p) => p.bookId === bookId);
+    if (records.length === 0) return 0;
+    const completed = records.filter((r) => r.isCompleted).length;
+    return Math.round((completed / records.length) * 100);
+  };
+
+  const dueCardsFor = (bookId: string) => {
+    const now = Date.now();
+    return Object.values(srsStates).filter(
+      (s) => s.bookId === bookId && (s.failedInPcLab || s.nextReviewTimestamp <= now)
+    ).length;
+  };
+
+  const continueBook = useMemo(() => {
+    const withProgress = books
+      .map((b) => ({ book: b, progress: progressFor(b.bookId) }))
+      .filter((x) => x.progress > 0 && x.progress < 100)
+      .sort((a, b) => b.progress - a.progress);
+    return withProgress[0]?.book ?? books[0] ?? null;
+  }, [books, lessonProgressMap]);
+
+  return (
+    <div className="h-full overflow-y-auto">
+      <div className="hero-mesh border-b border-subtle px-6 py-10">
+        <div className="mx-auto max-w-6xl">
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-subtle bg-surface/60 px-3 py-1 text-[11px] text-muted">
+              <Sparkles size={12} className="text-accent" /> Motor Universal de Libros Vivos v2.0
+            </span>
+            <h1 className="mt-4 text-3xl font-bold tracking-tight text-primary sm:text-4xl">
+              Tu biblioteca <span className="gradient-text">interactiva</span> de Python
+            </h1>
+            <p className="mt-2 max-w-2xl text-sm text-muted">
+              Libros tecnicos compilados en laboratorios vivos: traza memoria, audita el AST, procesa datos reales y repasa con SM-2. Todo offline, todo a un clic.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setShowCompiler(true)}
+                className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-canvas transition-transform hover:scale-[1.03]"
+              >
+                <Wand2 size={14} /> Compilar Nuevo Libro (Multi-Agente)
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowImporter(true)}
+                className="flex items-center gap-1.5 rounded-lg border border-subtle px-4 py-2 text-xs font-medium text-primary transition-colors hover:border-accent/50"
+              >
+                <Plus size={14} /> Importar JSON
+              </button>
+            </div>
+          </motion.div>
+
+          {continueBook && (
+            <motion.button
+              type="button"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, delay: 0.1 }}
+              onClick={() => openBook(continueBook.bookId)}
+              className="surface-card accent-glow mt-6 flex w-full max-w-2xl items-center gap-4 p-4 text-left"
+            >
+              <span
+                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-2xl"
+                style={{ backgroundColor: `${continueBook.themeDNA.colors.accentPrimary}22` }}
+              >
+                {continueBook.metadata.coverAccentIcon}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-accent">
+                  <Play size={10} /> Continuar donde lo dejaste
+                </p>
+                <p className="truncate text-sm font-semibold text-primary">{continueBook.metadata.title}</p>
+                <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-elevated">
+                  <div
+                    className="h-full rounded-full transition-all"
+                    style={{
+                      width: `${progressFor(continueBook.bookId)}%`,
+                      backgroundColor: continueBook.themeDNA.colors.accentPrimary,
+                    }}
+                  />
+                </div>
+              </div>
+              <span className="hidden shrink-0 rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-canvas sm:block">
+                Abrir
+              </span>
+            </motion.button>
+          )}
+        </div>
+      </div>
+
+      <div className="mx-auto max-w-6xl px-6 py-8">
+        <div className="mb-4 flex items-center justify-between">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted">
+            Cartuchos compilados ({books.length})
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {books.map((book, idx) => {
+            const progress = progressFor(book.bookId);
+            const due = dueCardsFor(book.bookId);
+            return (
+              <motion.button
+                key={book.bookId}
+                type="button"
+                initial={{ opacity: 0, y: 14 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35, delay: idx * 0.06 }}
+                onClick={() => openBook(book.bookId)}
+                className="surface-card group flex flex-col p-4 text-left"
+              >
+                <div
+                  className="mb-3 h-1.5 w-full rounded-full"
+                  style={{
+                    background: `linear-gradient(90deg, ${book.themeDNA.colors.accentPrimary}, ${book.themeDNA.colors.accentSecondary})`,
+                  }}
+                />
+                {book.metadata.coverImageDataUrl ? (
+                  <img
+                    src={book.metadata.coverImageDataUrl}
+                    alt={`Portada de ${book.metadata.title}`}
+                    loading="lazy"
+                    className="mb-3 h-40 w-full rounded-xl border border-subtle object-cover"
+                  />
+                ) : null}
+                <div className="mb-2 flex items-start justify-between">
+                  <span
+                    className="flex h-10 w-10 items-center justify-center rounded-xl text-xl"
+                    style={{ backgroundColor: `${book.themeDNA.colors.accentPrimary}22` }}
+                  >
+                    {book.metadata.coverAccentIcon}
+                  </span>
+                  <span className="rounded-full bg-elevated px-2 py-0.5 text-[10px] text-muted">
+                    {book.metadata.difficulty}
+                  </span>
+                </div>
+                <h3 className="text-sm font-semibold text-primary">{book.metadata.title}</h3>
+                <p className="mb-2 line-clamp-2 text-[11px] text-muted">{book.metadata.subtitle}</p>
+
+                <div className="mb-3 flex items-center gap-1.5 text-[10px] text-muted">
+                  <Sparkles size={10} /> {book.themeDNA.themeName}
+                </div>
+
+                <div className="mb-1 flex items-center justify-between text-[10px] text-muted">
+                  <span>Progreso</span>
+                  <span>{progress}%</span>
+                </div>
+                <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-elevated">
+                  <div
+                    className="h-full rounded-full transition-all"
+                    style={{ width: `${progress}%`, backgroundColor: book.themeDNA.colors.accentPrimary }}
+                  />
+                </div>
+
+                <div className="mt-auto flex items-center justify-between text-[10px] text-muted">
+                  <span className="flex items-center gap-1">
+                    <Layers size={10} /> {book.chapters.length} caps
+                  </span>
+                  <span className={cn('flex items-center gap-1', due > 0 && 'text-secondary')}>
+                    <Package size={10} /> {due} repasos
+                  </span>
+                </div>
+              </motion.button>
+            );
+          })}
+
+          <motion.button
+            type="button"
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, delay: books.length * 0.06 }}
+            onClick={() => setShowCompiler(true)}
+            className="flex min-h-[13rem] flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-subtle p-4 text-center transition-colors hover:border-accent/60 hover:bg-accent/5"
+          >
+            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-elevated">
+              <Wand2 size={20} className="text-accent" />
+            </span>
+            <p className="text-xs font-medium text-primary">Compilar un libro</p>
+            <p className="text-[11px] text-muted">
+              Multi-agente desde PDF / texto o importa un <span className="code-font text-accent">cartridge.json</span>
+            </p>
+          </motion.button>
+        </div>
+
+        <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {[
+            { icon: Zap, title: 'Python en el navegador', desc: 'Pyodide + micropip, sin servidores' },
+            { icon: Clock, title: 'Repaso espaciado SM-2', desc: 'Refuerza lo que fallaste en el PC Lab' },
+            { icon: BookOpen, title: '100% offline', desc: 'Tu progreso vive en IndexedDB' },
+          ].map((f) => (
+            <div key={f.title} className="flex items-start gap-3 rounded-xl border border-subtle bg-surface/50 p-3">
+              <f.icon size={16} className="mt-0.5 text-accent" />
+              <div>
+                <p className="text-xs font-semibold text-primary">{f.title}</p>
+                <p className="text-[11px] text-muted">{f.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {showImporter && <CartridgeImporterModal onClose={() => setShowImporter(false)} />}
+      {showCompiler && <CompilerStudioModal onClose={() => setShowCompiler(false)} />}
+    </div>
+  );
+}

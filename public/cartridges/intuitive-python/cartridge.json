@@ -1,0 +1,250 @@
+{
+  "schemaVersion": "2.0",
+  "bookId": "intuitive-python-field-guide",
+  "metadata": {
+    "title": "Intuitive Python",
+    "subtitle": "Ecosistema, Datos y AST Avanzado - Field Guide Edition",
+    "authors": ["David Muller"],
+    "edition": "Field Guide Edition",
+    "difficulty": "INTERMEDIATE",
+    "coverAccentIcon": "🧭"
+  },
+  "themeDNA": {
+    "themeName": "Editorial Emerald & Graphite",
+    "mode": "dark",
+    "colors": {
+      "bgCanvas": "#0B1210",
+      "bgSurface": "#111A17",
+      "bgElevated": "#18241F",
+      "borderSubtle": "#24352E",
+      "textPrimary": "#ECFDF5",
+      "textMuted": "#8FA89C",
+      "accentPrimary": "#10B981",
+      "accentSecondary": "#A78BFA",
+      "accentSuccess": "#34D399",
+      "accentDanger": "#FB7185"
+    },
+    "typography": {
+      "editorialFont": "serif",
+      "codeFont": "JetBrains Mono"
+    }
+  },
+  "runtimeRequirements": {
+    "pythonVersion": "3.14",
+    "packages": ["pandas", "matplotlib"],
+    "enableLiveMemoryTracer": false,
+    "virtualFileSystemSeed": {
+      "ventas_q1.csv": "mes,ingresos,costos\nEne,12000,7500\nFeb,15400,8200\nMar,18900,9100\n"
+    }
+  },
+  "glossary": {
+    "comprehension": {
+      "term": "comprehension",
+      "definition": "Construccion idiomatica que crea una coleccion en una sola expresion. Una list comprehension reemplaza bucles for imperativos con filtrado.",
+      "chapterIntroduced": 1,
+      "pageRef": 12,
+      "snippet": "[x for x in nums if x % 2 == 0]"
+    },
+    "mutation": {
+      "term": "mutation",
+      "definition": "Modificacion in-place de un objeto mutable. Mutar una lista mientras se itera sobre ella produce saltos de elementos inesperados.",
+      "chapterIntroduced": 1,
+      "pageRef": 18
+    },
+    "dataframe": {
+      "term": "dataframe",
+      "definition": "Estructura tabular bidimensional de pandas con columnas etiquetadas. Permite filtrar, transformar y agregar datos de forma vectorizada.",
+      "chapterIntroduced": 2,
+      "pageRef": 34
+    },
+    "vectorization": {
+      "term": "vectorization",
+      "definition": "Aplicar operaciones a columnas completas sin bucles explicitos, aprovechando rutinas optimizadas de NumPy por debajo.",
+      "chapterIntroduced": 2,
+      "pageRef": 36
+    }
+  },
+  "achievements": [
+    {
+      "id": "ast-idiomatic",
+      "title": "Idiomatico Certificado",
+      "description": "Resuelve un AST_CHALLENGE usando estrictamente una List Comprehension sin bucles for.",
+      "iconKey": "sparkles",
+      "rule": { "metric": "AST_MASTERY", "threshold": 1 }
+    },
+    {
+      "id": "data-wrangler",
+      "title": "Domador de Datos",
+      "description": "Completa el laboratorio de procesamiento de ventas_q1.csv con grafico de barras.",
+      "iconKey": "trophy",
+      "rule": { "metric": "LESSON_COMPLETE", "threshold": 1 }
+    },
+    {
+      "id": "bug-hunter",
+      "title": "Cazador de Bugs",
+      "description": "Diagnostica correctamente la mutacion de listas durante la iteracion.",
+      "iconKey": "brain",
+      "rule": { "metric": "FIRST_TRY_STREAK", "threshold": 1 }
+    }
+  ],
+  "chapters": [
+    {
+      "chapterId": "ip-ch1",
+      "number": 1,
+      "title": "Python Idiomatico y Auditoria AST",
+      "summary": "Transforma bucles imperativos en comprehensions y audita la estructura del codigo con el modulo ast.",
+      "microLessons": [
+        {
+          "lessonId": "ip-ch1-l1",
+          "order": 1,
+          "title": "Comprehensions vs Bucles Imperativos",
+          "estimatedMinutes": 15,
+          "blocks": [
+            {
+              "blockId": "ip-ch1-l1-prose-1",
+              "type": "PROSE",
+              "markdown": "Una [[comprehension]] expresa en una sola linea lo que un bucle for imperativo hace en cuatro. Pythonistas experimentados prefieren comprehensions porque son mas declarativas y a menudo mas rapidas.\n\nEl patron `[expr for item in iterable if condicion]` filtra y transforma simultaneamente. El AST resultante contiene un nodo `ListComp` en lugar de un `For` tradicional.",
+              "callout": {
+                "kind": "WARNING",
+                "title": "Trampa Comun",
+                "body": "No uses comprehensions para efectos secundarios (como imprimir). Su proposito es construir una coleccion, no ejecutar acciones."
+              }
+            },
+            {
+              "blockId": "ip-ch1-l1-ast-1",
+              "type": "AST_CHALLENGE",
+              "gatesNextBlock": true,
+              "title": "Filtra Pares con List Comprehension",
+              "instructions": "Escribe una funcion `even_squares(nums)` que devuelva los cuadrados de los numeros pares usando estrictamente una List Comprehension. No se permite un bucle for tradicional.",
+              "starterCode": "def even_squares(nums: list[int]) -> list[int]:\n    \"\"\"Return squares of even numbers using a list comprehension.\"\"\"\n    return [n * n for n in nums if n % 2 == 0]\n",
+              "astConstraints": {
+                "requiredNodeTypes": ["ListComp", "FunctionDef"],
+                "forbiddenNodeTypes": ["For"],
+                "forbiddenCalls": [],
+                "customAstMessage": "Debes resolverlo usando una List Comprehension, no un bucle for tradicional."
+              },
+              "unitTestCode": "assert even_squares([1, 2, 3, 4]) == [4, 16]\nassert even_squares([2, 4, 6]) == [4, 16, 36]\nassert even_squares([1, 3, 5]) == []\n",
+              "linkedFlashcardId": "ip-card-listcomp"
+            },
+            {
+              "blockId": "ip-ch1-l1-bug-1",
+              "type": "BUG_AUTOPSY",
+              "title": "Autopsia: Mutacion Durante Iteracion",
+              "prompt": "Este codigo intenta eliminar los numeros impares de una lista, pero deja elementos sin procesar. Identifica la linea culpable y la causa raiz.",
+              "codeSnippet": "nums = [1, 2, 3, 4, 5, 6]\nfor n in nums:\n    if n % 2 != 0:\n        nums.remove(n)\nprint(nums)",
+              "tracebackText": "Salida inesperada: [2, 4, 6] esperado, pero se obtuvo [2, 4, 6] solo por casualidad.\nCon [1, 2, 3, 4, 5] el resultado real es [2, 4] pero con [1, 3, 5, 7] el resultado es [3, 7].\nEl iterador interno salta elementos porque la lista se acorta mientras se recorre.",
+              "culpritLineNumber": 4,
+              "options": [
+                "Mutar la lista con remove() mientras el bucle for la itera desplaza los indices y salta elementos.",
+                "La condicion n % 2 != 0 es incorrecta para detectar impares.",
+                "print(nums) no muestra la lista completa por un problema de buffer.",
+                "El bucle for no recorre listas de mas de 4 elementos."
+              ],
+              "correctOptionIndex": 0,
+              "explanation": "Mutar una lista durante su iteracion invalida el indice interno del iterador. La solucion idiomatica es construir una nueva lista con una comprehension: [n for n in nums if n % 2 == 0].",
+              "linkedFlashcardId": "ip-card-mutation"
+            },
+            {
+              "blockId": "ip-ch1-l1-parsons-1",
+              "type": "PARSONS_PROBLEM",
+              "prompt": "Reconstruye la comprehension que devuelve los cuadrados de los numeros pares.",
+              "blocks": [
+                { "id": "q1", "code": "def even_squares(nums: list[int]) -> list[int]:", "correctOrder": 0, "correctIndent": 0, "isDistractor": false },
+                { "id": "q2", "code": "return [n * n for n in nums if n % 2 == 0]", "correctOrder": 1, "correctIndent": 1, "isDistractor": false },
+                { "id": "q3", "code": "return [n * n for n in nums if n % 2 != 0]", "correctOrder": -1, "correctIndent": 1, "isDistractor": true }
+              ],
+              "linkedFlashcardId": "ip-card-listcomp"
+            },
+            {
+              "blockId": "ip-ch1-l1-card-1",
+              "type": "FLASHCARD",
+              "cardId": "ip-card-listcomp",
+              "frontMarkdown": "¿Que nodo AST produce una list comprehension y por que es preferible a un bucle for?",
+              "backMarkdown": "Produce un nodo ListComp. Es preferible porque es declarativa, mas concisa y a menudo mas rapida al evitar el overhead de append() en un bucle explicito.",
+              "codeExample": "[n * n for n in nums if n % 2 == 0]",
+              "tags": ["ast", "comprehension", "idiomatico"]
+            },
+            {
+              "blockId": "ip-ch1-l1-card-2",
+              "type": "FLASHCARD",
+              "cardId": "ip-card-mutation",
+              "frontMarkdown": "¿Por que es peligroso mutar una lista mientras se itera sobre ella?",
+              "backMarkdown": "Porque el iterador mantiene un indice interno que se desincroniza al eliminar elementos, saltando valores. La solucion es crear una nueva lista con comprehension o iterar sobre una copia.",
+              "codeExample": "# Malo:\nfor n in nums:\n    if n % 2: nums.remove(n)\n# Bueno:\nnums = [n for n in nums if n % 2 == 0]",
+              "tags": ["mutacion", "iteracion", "trampa"]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "chapterId": "ip-ch2",
+      "number": 2,
+      "title": "Procesamiento de Archivos Reales y Visualizacion",
+      "summary": "Lee un CSV real desde el Virtual FS, calcula margenes con pandas y genera un grafico de barras con matplotlib.",
+      "microLessons": [
+        {
+          "lessonId": "ip-ch2-l1",
+          "order": 1,
+          "title": "Limpieza de ventas_q1.csv y Margen Neto",
+          "estimatedMinutes": 18,
+          "blocks": [
+            {
+              "blockId": "ip-ch2-l1-prose-1",
+              "type": "PROSE",
+              "markdown": "Un [[dataframe]] de pandas es una tabla con columnas etiquetadas. Al leer `ventas_q1.csv` obtenemos ingresos y costos por mes. La [[vectorization]] nos permite calcular el margen neto de todos los meses en una sola operacion, sin bucles.\n\n`df['margen'] = df['ingresos'] - df['costos']` aplica la resta a toda la columna de una vez.",
+              "callout": {
+                "kind": "TIP",
+                "title": "Rendimiento",
+                "body": "Evita iterar filas con iterrows(). Las operaciones vectorizadas sobre columnas son ordenes de magnitud mas rapidas."
+              }
+            },
+            {
+              "blockId": "ip-ch2-l1-viz-1",
+              "type": "INTERACTIVE_VISUALIZER",
+              "visualizerKind": "DATAFRAME_DIFF",
+              "title": "Limpieza y Margen de ventas_q1.csv",
+              "codeContext": "df = pd.read_csv('ventas_q1.csv')\ndf['margen'] = df['ingresos'] - df['costos']",
+              "payload": {
+                "dataframeSnapshot": {
+                  "operation": "df['margen'] = df['ingresos'] - df['costos']",
+                  "highlightColumns": ["margen"],
+                  "before": [
+                    { "mes": "Ene", "ingresos": 12000, "costos": 7500 },
+                    { "mes": "Feb", "ingresos": 15400, "costos": 8200 },
+                    { "mes": "Mar", "ingresos": 18900, "costos": 9100 }
+                  ],
+                  "after": [
+                    { "mes": "Ene", "ingresos": 12000, "costos": 7500, "margen": 4500 },
+                    { "mes": "Feb", "ingresos": 15400, "costos": 8200, "margen": 7200 },
+                    { "mes": "Mar", "ingresos": 18900, "costos": 9100, "margen": 9800 }
+                  ]
+                }
+              }
+            },
+            {
+              "blockId": "ip-ch2-l1-lab-1",
+              "type": "CODE_LAB",
+              "title": "Proyecto: Margen Neto y Grafico de Barras",
+              "instructions": "Lee ventas_q1.csv desde el Virtual FS con pandas, calcula la columna margen y genera un grafico de barras de margen por mes con matplotlib.pyplot. El grafico aparecera en la pestana Graficas.",
+              "scaffoldMode": "MULTI_FILE_PROJECT",
+              "starterCode": "import pandas as pd\nimport matplotlib.pyplot as plt\n\ndf = pd.read_csv('ventas_q1.csv')\ndf['margen'] = df['ingresos'] - df['costos']\n\nplt.bar(df['mes'], df['margen'], color='#10B981')\nplt.title('Margen Neto Q1')\nplt.xlabel('Mes')\nplt.ylabel('Margen')\nplt.show()\n\nprint(df[['mes', 'margen']].to_string(index=False))\n",
+              "targetFileName": "main.py",
+              "unitTestCode": "assert 'margen' in df.columns\nassert df['margen'].tolist() == [4500, 7200, 9800]\n",
+              "linkedFlashcardId": "ip-card-pandas"
+            },
+            {
+              "blockId": "ip-ch2-l1-card-1",
+              "type": "FLASHCARD",
+              "cardId": "ip-card-pandas",
+              "frontMarkdown": "¿Como se calcula una nueva columna derivada en un DataFrame de pandas?",
+              "backMarkdown": "Asignando una expresion vectorizada a un nombre de columna: df['nueva'] = df['a'] - df['b']. La operacion se aplica a todas las filas sin bucles explicitos.",
+              "codeExample": "df['margen'] = df['ingresos'] - df['costos']",
+              "tags": ["pandas", "dataframe", "vectorizacion"]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
