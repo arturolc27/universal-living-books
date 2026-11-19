@@ -96,12 +96,20 @@ export function BookLibraryHub() {
               onClick={() => openBook(continueBook.bookId)}
               className="surface-card accent-glow mt-6 flex w-full max-w-2xl items-center gap-4 p-4 text-left"
             >
-              <span
-                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-2xl"
-                style={{ backgroundColor: `${continueBook.themeDNA.colors.accentPrimary}22` }}
-              >
-                {continueBook.metadata.coverAccentIcon}
-              </span>
+              {isSafeCoverImageUrl(continueBook.metadata.coverImageDataUrl) ? (
+                <img
+                  src={continueBook.metadata.coverImageDataUrl}
+                  alt={continueBook.metadata.title}
+                  className="h-16 w-12 shrink-0 rounded-lg border border-subtle object-cover shadow-sm"
+                />
+              ) : (
+                <span
+                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-2xl"
+                  style={{ backgroundColor: `${continueBook.themeDNA.colors.accentPrimary}22` }}
+                >
+                  {continueBook.metadata.coverAccentIcon}
+                </span>
+              )}
               <div className="min-w-0 flex-1">
                 <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-accent">
                   <Play size={10} /> Continuar donde lo dejaste
@@ -152,27 +160,34 @@ export function BookLibraryHub() {
                     background: `linear-gradient(90deg, ${book.themeDNA.colors.accentPrimary}, ${book.themeDNA.colors.accentSecondary})`,
                   }}
                 />
-                {isSafeCoverImageUrl(book.metadata.coverImageDataUrl) ? (
-                  <img
-                    src={book.metadata.coverImageDataUrl}
-                    alt={`Portada de ${book.metadata.title}`}
-                    loading="lazy"
-                    className="mb-3 h-40 w-full rounded-xl border border-subtle object-cover"
-                  />
-                ) : null}
-                <div className="mb-2 flex items-start justify-between">
-                  <span
-                    className="flex h-10 w-10 items-center justify-center rounded-xl text-xl"
-                    style={{ backgroundColor: `${book.themeDNA.colors.accentPrimary}22` }}
-                  >
-                    {book.metadata.coverAccentIcon}
-                  </span>
-                  <span className="rounded-full bg-elevated px-2 py-0.5 text-[10px] text-muted">
-                    {book.metadata.difficulty}
-                  </span>
+                <div className="mb-3 flex items-start gap-3">
+                  {isSafeCoverImageUrl(book.metadata.coverImageDataUrl) ? (
+                    <img
+                      src={book.metadata.coverImageDataUrl}
+                      alt={`Portada de ${book.metadata.title}`}
+                      loading="lazy"
+                      className="h-28 w-20 shrink-0 rounded-lg border border-subtle bg-canvas object-cover shadow-sm"
+                    />
+                  ) : (
+                    <span
+                      className="flex h-16 w-12 shrink-0 items-center justify-center rounded-xl border border-subtle text-2xl"
+                      style={{ backgroundColor: `${book.themeDNA.colors.accentPrimary}22` }}
+                    >
+                      {book.metadata.coverAccentIcon}
+                    </span>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <span className="inline-block rounded-full bg-elevated px-2 py-0.5 text-[10px] text-muted">
+                      {book.metadata.difficulty}
+                    </span>
+                    <h3 className="mt-1 line-clamp-2 text-sm font-semibold text-primary">
+                      {book.metadata.title}
+                    </h3>
+                    <p className="mt-1 line-clamp-2 text-[11px] text-muted">
+                      {book.metadata.subtitle || book.metadata.authors.join(', ')}
+                    </p>
+                  </div>
                 </div>
-                <h3 className="text-sm font-semibold text-primary">{book.metadata.title}</h3>
-                <p className="mb-2 line-clamp-2 text-[11px] text-muted">{book.metadata.subtitle}</p>
 
                 <div className="mb-3 flex items-center gap-1.5 text-[10px] text-muted">
                   <Sparkles size={10} /> {book.themeDNA.themeName}

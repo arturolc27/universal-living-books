@@ -70,6 +70,49 @@ export interface StartCompilationParams {
   onChapterReady?: (chapterNumber: number, cartridge: BookCartridge) => void;
 }
 
+export interface InterruptedCompilationJob {
+  bookId: string;
+  metadata: BookMetadataDraft;
+  chunks: SectionChunk[];
+  config: CompilerJobConfig;
+  completedSectionIds: string[];
+  estimatedCostFallback: number;
+  savedAt: number;
+}
+
+const PENDING_JOB_KEY = 'ulb_pending_compilation_job';
+
+function savePendingJob(job: InterruptedCompilationJob): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(PENDING_JOB_KEY, JSON.stringify(job));
+  } catch {
+    // ignore quota errors
+  }
+}
+
+function readPendingJob(): InterruptedCompilationJob | null {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(PENDING_JOB_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as InterruptedCompilationJob;
+    if (!parsed?.bookId || !Array.isArray(parsed.chunks)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function clearPendingJob(): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.removeItem(PENDING_JOB_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 class CompilationOrchestrator {
   private state: OrchestratorSnapshot = INITIAL_SNAPSHOT;
   private listeners = new Set<() => void>();
@@ -189,6 +232,16 @@ class CompilationOrchestrator {
       sections: job.sectionsMap,
     });
 
+    savePendingJob({
+      bookId,
+      metadata,
+      chunks,
+      config,
+      completedSectionIds: [],
+      estimatedCostFallback,
+      savedAt: Date.now(),
+    });
+
     const compiler = new ParallelBookCompiler({
       job,
       chunks,
@@ -215,8 +268,20 @@ class CompilationOrchestrator {
       credentials,
       callbacks: {
         onTelemetry: (t) => this.update({ telemetry: t }),
-        onSectionUpdate: (section) =>
-          this.update({ sections: { ...this.state.sections, [section.sectionId]: { ...section } } }),
+        onSectionUpdate: (section) => {
+          const nextSections = { ...this.state.sections, [section.sectionId]: { ...section } };
+          this.update({ sections: nextSections });
+          if (section.status === 'COMPLETED') {
+            const current = readPendingJob();
+            if (current && current.bookId === bookId && !current.completedSectionIds.includes(section.sectionId)) {
+              savePendingJob({
+                ...current,
+                completedSectionIds: [...current.completedSectionIds, section.sectionId],
+                savedAt: Date.now(),
+              });
+            }
+          }
+        },
         onChapterReady: (chapterNumber, cartridge) => {
           const prevChapters = this.state.readyChapters;
           this.update({
@@ -240,6 +305,9 @@ class CompilationOrchestrator {
     try {
       await compiler.start();
       const finalStatus = compiler.getJob().status;
+      if (finalStatus === 'COMPLETED' || finalStatus === 'CANCELLED') {
+        clearPendingJob();
+      }
       this.update({
         phase:
           finalStatus === 'COMPLETED'
@@ -256,6 +324,38 @@ class CompilationOrchestrator {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+  }
+
+  getInterruptedJob(): InterruptedCompilationJob | null {
+    if (this.isBusy()) return null;
+    const saved = readPendingJob();
+    if (!saved) return null;
+    const remaining = saved.chunks.filter((c) => !saved.completedSectionIds.includes(c.sectionId));
+    if (remaining.length === 0) {
+      clearPendingJob();
+      return null;
+    }
+    return saved;
+  }
+
+  discardInterruptedJob(): void {
+    clearPendingJob();
+  }
+
+  async resumeInterruptedJob(credentials: CompilerCredentials): Promise<void> {
+    const saved = this.getInterruptedJob();
+    if (!saved) return;
+    const remainingChunks = saved.chunks.filter(
+      (c) => !saved.completedSectionIds.includes(c.sectionId)
+    );
+    await this.startCompilation({
+      bookId: saved.bookId,
+      metadata: saved.metadata,
+      chunks: remainingChunks,
+      config: saved.config,
+      credentials,
+      estimatedCostFallback: saved.estimatedCostFallback,
+    });
   }
 
   togglePauseTracer(): void {

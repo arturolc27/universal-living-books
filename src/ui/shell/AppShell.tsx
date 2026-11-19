@@ -11,6 +11,10 @@ import {
   Command,
   Settings,
   Wand2,
+  WifiOff,
+  Download,
+  Play,
+  X,
 } from 'lucide-react';
 import { usePlatformStore, selectActiveCartridge } from '../../store/usePlatformStore';
 import { CommandPalette } from './CommandPalette';
@@ -18,7 +22,16 @@ import { CartridgeImporterModal } from '../library/CartridgeImporterModal';
 import { SettingsModal } from '../settings/SettingsModal';
 import { CompilerStudioModal } from '../library/CompilerStudioModal';
 import { CompilerBackgroundPill } from '../library/CompilerBackgroundPill';
+import {
+  compilationOrchestrator,
+  type InterruptedCompilationJob,
+} from '../../engine/compiler/compilationOrchestrator';
 import { cn } from '../utils/cn';
+
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const setCommandPaletteOpen = usePlatformStore((s) => s.setCommandPaletteOpen);
@@ -28,16 +41,38 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const activeBookId = usePlatformStore((s) => s.activeBookId);
   const cartridge = usePlatformStore(selectActiveCartridge);
   const userStats = usePlatformStore((s) => s.userStats);
+  const settings = usePlatformStore((s) => s.settings);
   const settingsOpen = usePlatformStore((s) => s.settingsOpen);
   const setSettingsOpen = usePlatformStore((s) => s.setSettingsOpen);
   const compilerOpen = usePlatformStore((s) => s.compilerOpen);
   const setCompilerOpen = usePlatformStore((s) => s.setCompilerOpen);
   const [showImporter, setShowImporter] = useState(false);
+  const [isOffline, setIsOffline] = useState(() =>
+    typeof navigator !== 'undefined' ? !navigator.onLine : false
+  );
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [interruptedJob, setInterruptedJob] = useState<InterruptedCompilationJob | null>(() =>
+    compilationOrchestrator.getInterruptedJob()
+  );
 
   useEffect(() => {
     const onOpenImporter = () => setShowImporter(true);
+    const onOnline = () => setIsOffline(false);
+    const onOffline = () => setIsOffline(true);
+    const onInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setInstallPrompt(e as BeforeInstallPromptEvent);
+    };
     window.addEventListener('living-books:open-importer', onOpenImporter);
-    return () => window.removeEventListener('living-books:open-importer', onOpenImporter);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    window.addEventListener('beforeinstallprompt', onInstallPrompt);
+    return () => {
+      window.removeEventListener('living-books:open-importer', onOpenImporter);
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+      window.removeEventListener('beforeinstallprompt', onInstallPrompt);
+    };
   }, []);
 
   const accuracy =
@@ -117,6 +152,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </button>
         </div>
 
+        {isOffline && (
+          <span
+            className="flex items-center gap-1 rounded-full border border-secondary/40 bg-secondary/10 px-2.5 py-1 text-[10px] font-semibold text-secondary"
+            title="Trabajando sin conexión (PWA Offline)"
+          >
+            <WifiOff size={11} /> Offline
+          </span>
+        )}
+
+        {installPrompt && (
+          <button
+            type="button"
+            onClick={async () => {
+              await installPrompt.prompt();
+              await installPrompt.userChoice;
+              setInstallPrompt(null);
+            }}
+            className="flex items-center gap-1 rounded-lg border border-accent/40 bg-accent/10 px-2.5 py-1 text-[11px] font-semibold text-accent hover:bg-accent/20"
+            title="Instalar app para uso offline"
+          >
+            <Download size={12} />
+            <span className="hidden sm:inline">Instalar App</span>
+          </button>
+        )}
+
         <CompilerBackgroundPill />
 
         <button
@@ -147,6 +207,43 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Settings size={15} />
         </button>
       </header>
+
+      {interruptedJob && (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-accent/30 bg-accent/10 px-4 py-2 text-xs">
+          <span className="text-primary">
+            Compilación pendiente de <strong>{interruptedJob.metadata.title}</strong> (
+            {interruptedJob.completedSectionIds.length}/{interruptedJob.chunks.length} secciones guardadas).
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setInterruptedJob(null);
+                setCompilerOpen(true);
+                void compilationOrchestrator.resumeInterruptedJob({
+                  openrouterApiKey: settings.openrouterApiKey,
+                  geminiApiKey: settings.geminiApiKey,
+                  ollamaBaseUrl: 'http://localhost:11434',
+                });
+              }}
+              className="flex items-center gap-1 rounded-lg bg-accent px-3 py-1 text-[11px] font-semibold text-canvas"
+            >
+              <Play size={11} /> Reanudar ahora
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                compilationOrchestrator.discardInterruptedJob();
+                setInterruptedJob(null);
+              }}
+              className="rounded-lg border border-subtle p-1 text-muted hover:text-primary"
+              title="Descartar"
+            >
+              <X size={13} />
+            </button>
+          </div>
+        </div>
+      )}
 
       <motion.main
         key={activeBookId ?? 'library'}

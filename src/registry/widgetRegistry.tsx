@@ -1,46 +1,80 @@
-import { Suspense, lazy, type ReactNode } from 'react';
+import { Suspense, lazy, type ComponentType, type ReactNode } from 'react';
 import type { DeviceMode, LessonBlock } from '../types/cartridge.types';
 
-const MemoryHeapVisualizer = lazy(() =>
+function lazyWithRetry<T extends ComponentType<any>>(
+  factory: () => Promise<{ default: T }>
+) {
+  return lazy(async () => {
+    const RELOAD_KEY = 'ulb_chunk_reload_once';
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const mod = await factory();
+        try {
+          sessionStorage.removeItem(RELOAD_KEY);
+        } catch {
+          // ignore
+        }
+        return mod;
+      } catch (err) {
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 350 * (attempt + 1)));
+          continue;
+        }
+        try {
+          if (!sessionStorage.getItem(RELOAD_KEY)) {
+            sessionStorage.setItem(RELOAD_KEY, '1');
+            window.location.reload();
+          }
+        } catch {
+          // ignore
+        }
+        throw err;
+      }
+    }
+    return factory();
+  });
+}
+
+const MemoryHeapVisualizer = lazyWithRetry(() =>
   import('./visualizers/MemoryHeapVisualizer').then((m) => ({ default: m.MemoryHeapVisualizer }))
 );
-const AstExpressionCollapser = lazy(() =>
+const AstExpressionCollapser = lazyWithRetry(() =>
   import('./visualizers/AstExpressionCollapser').then((m) => ({ default: m.AstExpressionCollapser }))
 );
-const DataFrameDiffVisualizer = lazy(() =>
+const DataFrameDiffVisualizer = lazyWithRetry(() =>
   import('./visualizers/DataFrameDiffVisualizer').then((m) => ({ default: m.DataFrameDiffVisualizer }))
 );
-const OopClassDiagramVisualizer = lazy(() =>
+const OopClassDiagramVisualizer = lazyWithRetry(() =>
   import('./visualizers/OopClassDiagramVisualizer').then((m) => ({ default: m.OopClassDiagramVisualizer }))
 );
-const FileCursorTapeVisualizer = lazy(() =>
+const FileCursorTapeVisualizer = lazyWithRetry(() =>
   import('./visualizers/FileCursorTapeVisualizer').then((m) => ({ default: m.FileCursorTapeVisualizer }))
 );
-const GpuMediaStage = lazy(() =>
+const GpuMediaStage = lazyWithRetry(() =>
   import('./visualizers/GpuMediaStage').then((m) => ({ default: m.GpuMediaStage }))
 );
-const CodeLabWorkspace = lazy(() =>
+const CodeLabWorkspace = lazyWithRetry(() =>
   import('./challenges/CodeLabWorkspace').then((m) => ({ default: m.CodeLabWorkspace }))
 );
-const AstStructuralChallenge = lazy(() =>
+const AstStructuralChallenge = lazyWithRetry(() =>
   import('./challenges/AstStructuralChallenge').then((m) => ({ default: m.AstStructuralChallenge }))
 );
-const OutputPredictionCard = lazy(() =>
+const OutputPredictionCard = lazyWithRetry(() =>
   import('./challenges/OutputPredictionCard').then((m) => ({ default: m.OutputPredictionCard }))
 );
-const ParsonsDragPuzzle = lazy(() =>
+const ParsonsDragPuzzle = lazyWithRetry(() =>
   import('./challenges/ParsonsDragPuzzle').then((m) => ({ default: m.ParsonsDragPuzzle }))
 );
-const BugAutopsyChallenge = lazy(() =>
+const BugAutopsyChallenge = lazyWithRetry(() =>
   import('./challenges/BugAutopsyChallenge').then((m) => ({ default: m.BugAutopsyChallenge }))
 );
-const SyntaxClozeChallenge = lazy(() =>
+const SyntaxClozeChallenge = lazyWithRetry(() =>
   import('./challenges/SyntaxClozeChallenge').then((m) => ({ default: m.SyntaxClozeChallenge }))
 );
-const QuickQuizChallenge = lazy(() =>
+const QuickQuizChallenge = lazyWithRetry(() =>
   import('./challenges/QuickQuizChallenge').then((m) => ({ default: m.QuickQuizChallenge }))
 );
-const PcOnlyLabHandoffCard = lazy(() =>
+const PcOnlyLabHandoffCard = lazyWithRetry(() =>
   import('./challenges/PcOnlyLabHandoffCard').then((m) => ({ default: m.PcOnlyLabHandoffCard }))
 );
 

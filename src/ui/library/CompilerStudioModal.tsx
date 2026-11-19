@@ -141,6 +141,8 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
   const [localLog, setLocalLog] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isExtracting, setIsExtracting] = useState(false);
+  const [scanProgress, setScanProgress] = useState<{ pct: number; label: string; elapsedSec: number } | null>(null);
+  const [autoPipeline, setAutoPipeline] = useState(true);
   const [isExtractingPdf, setIsExtractingPdf] = useState(false);
   const [pdfProgress, setPdfProgress] = useState<{ page: number; total: number } | null>(null);
 
@@ -194,6 +196,15 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
         `${result.format.toUpperCase()} procesado: ${result.text.length.toLocaleString()} caracteres, ${result.totalPages} paginas/secciones` +
           (result.coverDataUrl ? ' + portada extraida.' : '.')
       );
+      if (autoPipeline && (config.dryRun || settings.openrouterApiKey || settings.geminiApiKey)) {
+        void runScanAndOptionallyCompile({
+          text: result.text,
+          cover: result.coverDataUrl,
+          native: result.nativeMetadata,
+          pages: result.totalPages,
+          autoStart: true,
+        });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -214,9 +225,20 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
     []
   );
 
-  const handleExtractMetadata = async () => {
+  const runScanAndOptionallyCompile = async (params?: {
+    text?: string;
+    cover?: string | null;
+    native?: BookSourceNativeMetadata;
+    pages?: number;
+    autoStart?: boolean;
+  }) => {
+    const sourceText = params?.text ?? rawText;
+    const sourceCover = params?.cover !== undefined ? params.cover : coverDataUrl;
+    const sourceNative = params?.native !== undefined ? params.native : nativeMetadata;
+    const sourcePages = params?.pages !== undefined ? params.pages : extractedTotalPages;
+
     setError(null);
-    if (!rawText.trim()) {
+    if (!sourceText.trim()) {
       setError('Carga o pega primero el texto del libro.');
       return;
     }
@@ -224,10 +246,23 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
       setError('Configura una API Key (OpenRouter o Gemini) o activa el Modo Simulacion.');
       return;
     }
+
     setIsExtracting(true);
+    const startedAt = Date.now();
+    setScanProgress({ pct: 12, label: 'Extrayendo front-matter y estructura...', elapsedSec: 0 });
+    const timer = window.setInterval(() => {
+      setScanProgress((prev) => {
+        if (!prev) return prev;
+        const elapsedSec = Math.floor((Date.now() - startedAt) / 1000);
+        const nextPct = prev.pct < 68 ? Math.min(68, prev.pct + 4) : prev.pct;
+        return { ...prev, pct: nextPct, elapsedSec };
+      });
+    }, 600);
+
     try {
       const provider = settings.geminiApiKey && !settings.openrouterApiKey ? 'gemini' : 'openrouter';
-      const result = await extractMetadataAndToc(rawText, {
+      setScanProgress({ pct: 30, label: 'Analizando indice maestro con IA...', elapsedSec: 0 });
+      const result = await extractMetadataAndToc(sourceText, {
         provider,
         openrouterApiKey: settings.openrouterApiKey,
         geminiApiKey: settings.geminiApiKey,
@@ -235,16 +270,20 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
         model: provider === 'gemini' ? settings.geminiModel : config.fastModel,
       }, {
         onLog: appendLog,
-        coverImageDataUrl: coverDataUrl ?? undefined,
-        nativeMetadata,
-        totalPages: extractedTotalPages,
+        coverImageDataUrl: sourceCover ?? undefined,
+        nativeMetadata: sourceNative,
+        totalPages: sourcePages,
       });
 
       setIsScannedWarning(result.isScannedLikely);
+      setScanProgress((prev) => ({
+        pct: 78,
+        label: 'Optimizando portada y paleta accesible...',
+        elapsedSec: prev?.elapsedSec ?? 0,
+      }));
 
-      // Optimizar portada (o generar portada editorial limpia si no existe) y extraer ThemeDNA accesible
       const optimized = await optimizeBookCover(
-        coverDataUrl,
+        sourceCover,
         result.metadata.title,
         result.metadata.authors,
         result.metadata.coverAccentIcon
@@ -261,6 +300,12 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
       };
       setMetadata(finalMetadata);
 
+      setScanProgress((prev) => ({
+        pct: 92,
+        label: 'Verificando capitulos en IndexedDB...',
+        elapsedSec: prev?.elapsedSec ?? 0,
+      }));
+
       const id = slugify(finalMetadata.title);
       let withStatus = result.chaptersIndex;
       try {
@@ -270,7 +315,6 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
           `No se pudo consultar la base de datos: ${dbErr instanceof Error ? dbErr.message : String(dbErr)}`
         );
       }
-      // Auto-selecciona los capitulos pendientes para poder avanzar de inmediato.
       const withCosts = withStatus.map((c) => ({
         ...c,
         estimatedCostUsd: estimateChapterCost(c.estimatedChars, config),
@@ -279,16 +323,59 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
       }));
 
       setChaptersIndex(withCosts);
+      setScanProgress({
+        pct: 100,
+        label: 'Indice listo',
+        elapsedSec: Math.floor((Date.now() - startedAt) / 1000),
+      });
       appendLog(
         `Fase 0 completa: "${finalMetadata.title}" con ${withCosts.length} capitulos ` +
           `(${withCosts.filter((c) => c.selectionState).length} preseleccionados).`
       );
+
+      if (params?.autoStart) {
+        const pendingNumbers = withCosts.filter((c) => c.selectionState).map((c) => c.chapterNumber);
+        if (pendingNumbers.length > 0) {
+          const bookChunks = segmentBookByIndex(sourceText, withCosts, {
+            selectedChapterNumbers: pendingNumbers,
+            onLog: appendLog,
+          });
+          if (bookChunks.length > 0) {
+            setChunks(bookChunks);
+            setView('RUNNING');
+            void saveBookCoverAssets(id, optimized).catch(() => {});
+            const estCost = withCosts
+              .filter((c) => c.selectionState)
+              .reduce((acc, c) => acc + c.estimatedCostUsd, 0);
+            void compilationOrchestrator.startCompilation({
+              bookId: id,
+              metadata: finalMetadata,
+              chunks: bookChunks,
+              config,
+              credentials: {
+                openrouterApiKey: settings.openrouterApiKey,
+                geminiApiKey: settings.geminiApiKey,
+                ollamaBaseUrl: 'http://localhost:11434',
+              },
+              estimatedCostFallback: estCost,
+              onChapterReady: (chapterNumber) => {
+                setChaptersIndex((prev) =>
+                  prev.map((c) => (c.chapterNumber === chapterNumber ? { ...c, dbStatus: 'IN_DATABASE' } : c))
+                );
+              },
+            });
+          }
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
+      window.clearInterval(timer);
       setIsExtracting(false);
     }
   };
+
+  const handleExtractMetadata = () => void runScanAndOptionallyCompile();
 
   const handleCustomCoverUpload = async (file: File) => {
     const reader = new FileReader();
@@ -564,6 +651,33 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
                     {isExtracting ? <Loader2 size={13} className="animate-spin" /> : <Wand2 size={13} />}
                     {isExtracting ? 'Escaneando indice...' : 'Escanear metadatos e indice (IA)'}
                   </button>
+                  {isExtracting && scanProgress && (
+                    <div className="space-y-1 rounded-lg border border-accent/30 bg-accent/5 p-2.5">
+                      <div className="flex items-center justify-between text-[10px]">
+                        <span className="font-medium text-accent">{scanProgress.label}</span>
+                        <span className="text-muted">
+                          {scanProgress.pct}% • {scanProgress.elapsedSec}s
+                        </span>
+                      </div>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-elevated">
+                        <div
+                          className="h-full rounded-full bg-accent transition-all duration-500"
+                          style={{ width: `${scanProgress.pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                  <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-subtle bg-canvas px-3 py-2">
+                    <input
+                      type="checkbox"
+                      checked={autoPipeline}
+                      onChange={(e) => setAutoPipeline(e.target.checked)}
+                      className="accent-[var(--accent-primary)]"
+                    />
+                    <span className="text-[11px] text-secondary">
+                      Automatizar todo (al cargar archivo: escanear y compilar en segundo plano)
+                    </span>
+                  </label>
                 </div>
 
                 <div className="space-y-2">
