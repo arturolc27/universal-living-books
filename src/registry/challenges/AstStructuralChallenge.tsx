@@ -96,7 +96,7 @@ export function AstStructuralChallenge({ block }: { block: AstChallengeBlock }) 
           <ShieldCheck size={12} /> Reglas estructurales
         </p>
         <div className="flex flex-wrap gap-1.5">
-          {block.astConstraints.requiredNodeTypes.map((node) => (
+          {(block.astConstraints?.requiredNodeTypes ?? []).map((node) => (
             <span key={node} className="rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-medium text-success">
               Requiere: {node}
             </span>

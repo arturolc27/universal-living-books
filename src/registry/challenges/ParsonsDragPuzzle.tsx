@@ -22,25 +22,27 @@ export function ParsonsDragPuzzle({
   const flagPcLabFailure = usePlatformStore((s) => s.flagPcLabFailure);
   const pushToast = usePlatformStore((s) => s.pushToast);
 
+  const safeBlocks = useMemo(() => (Array.isArray(block.blocks) ? block.blocks : []), [block.blocks]);
   const [placed, setPlaced] = useState<PlacedLine[]>([]);
-  const [tray, setTray] = useState(block.blocks.map((b) => b.id));
+  const [tray, setTray] = useState(safeBlocks.map((b) => b.id));
   const [result, setResult] = useState<'PENDING' | 'CORRECT' | 'WRONG'>('PENDING');
 
   useEffect(() => {
     setPlaced([]);
-    setTray(block.blocks.map((b) => b.id));
+    setTray(safeBlocks.map((b) => b.id));
     setResult('PENDING');
-  }, [block.blockId, block.blocks]);
+  }, [block.blockId, safeBlocks]);
 
   const blockMap = useMemo(() => {
     const map: Record<string, ParsonsProblemBlock['blocks'][number]> = {};
-    for (const b of block.blocks) map[b.id] = b;
+    for (const b of safeBlocks) map[b.id] = b;
     return map;
-  }, [block.blocks]);
+  }, [safeBlocks]);
 
   const addToPlaced = (id: string) => {
     const source = blockMap[id];
-    setPlaced((prev) => [...prev, { id, code: source.code, indent: source.correctIndent }]);
+    if (!source) return;
+    setPlaced((prev) => [...prev, { id, code: source.code, indent: source.correctIndent ?? 0 }]);
     setTray((prev) => prev.filter((t) => t !== id));
     setResult('PENDING');
   };

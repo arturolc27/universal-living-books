@@ -244,18 +244,18 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
       livingBooksDb.unlockedAchievements.toArray(),
     ]);
 
+    const { repairCartridgeForRuntime } = await import('../engine/compiler/lessonSanitizer');
     const cartridges: Record<string, BookCartridge> = { ...get().cartridges };
     for (const record of installed) {
-      // Defensa: un cartucho corrupto en IndexedDB no debe tumbar la app.
-      const validation = validateBookCartridge(record.cartridgeJson);
-      if (validation.success) {
-        cartridges[record.bookId] = validation.cartridge;
+      // Siempre repara/normaliza bloques del cartucho para que nunca se pierda un libro compilado.
+      const repaired = repairCartridgeForRuntime(record.cartridgeJson);
+      if (repaired) {
+        cartridges[record.bookId] = repaired;
       } else {
-        // eslint-disable-next-line no-console
-        console.warn(
-          `Cartucho invalido en la base de datos (${record.bookId}); se omite:`,
-          validation.issues
-        );
+        const validation = validateBookCartridge(record.cartridgeJson);
+        if (validation.success) {
+          cartridges[record.bookId] = validation.cartridge;
+        }
       }
     }
 

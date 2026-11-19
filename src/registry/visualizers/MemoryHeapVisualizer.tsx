@@ -19,8 +19,8 @@ export function MemoryHeapVisualizer({ block }: { block: InteractiveVisualizerBl
 
   const steps = useMemo<MemoryStep[]>(() => {
     if (liveMemorySteps.length > 0) return liveMemorySteps;
-    return block.payload.memorySteps ?? [];
-  }, [block.payload.memorySteps, liveMemorySteps]);
+    return block.payload?.memorySteps ?? [];
+  }, [block.payload, liveMemorySteps]);
 
   const [stepIndex, setStepIndex] = useState(0);
   const [dragResolved, setDragResolved] = useState<Record<number, boolean>>({});
@@ -89,7 +89,7 @@ export function MemoryHeapVisualizer({ block }: { block: InteractiveVisualizerBl
 
       <div className="border-b border-subtle bg-canvas px-3 py-2">
         <pre className="code-font text-[11px] leading-relaxed text-muted">
-          {block.codeContext.split('\n').map((line, idx) => (
+          {(block.codeContext ?? '').split('\n').map((line, idx) => (
             <div
               key={idx}
               className={cn(
@@ -110,7 +110,7 @@ export function MemoryHeapVisualizer({ block }: { block: InteractiveVisualizerBl
             Frames (Call Stack)
           </p>
           <div className="space-y-2">
-            {currentStep.frames.map((frame, idx) => (
+            {(currentStep.frames ?? []).map((frame, idx) => (
               <div
                 key={idx}
                 className={cn(
@@ -121,7 +121,7 @@ export function MemoryHeapVisualizer({ block }: { block: InteractiveVisualizerBl
                 <p className="mb-1 text-[11px] font-semibold text-primary">
                   {frame.name}() {frame.isCurrent && <span className="text-accent">(activo)</span>}
                 </p>
-                {Object.entries(frame.variables).map(([varName, heapId]) => (
+                {Object.entries(frame.variables ?? {}).map(([varName, heapId]) => (
                   <button
                     key={varName}
                     type="button"
@@ -134,7 +134,7 @@ export function MemoryHeapVisualizer({ block }: { block: InteractiveVisualizerBl
                     )}
                   >
                     <span className="code-font">{varName}</span>
-                    <span className="code-font text-secondary">{heapId}</span>
+                    <span className="code-font text-secondary">{String(heapId)}</span>
                   </button>
                 ))}
               </div>
@@ -148,7 +148,7 @@ export function MemoryHeapVisualizer({ block }: { block: InteractiveVisualizerBl
           </p>
           <div className="space-y-2">
             <AnimatePresence>
-              {currentStep.heap.map((obj) => (
+              {(currentStep.heap ?? []).map((obj) => (
                 <motion.button
                   key={obj.id}
                   type="button"
