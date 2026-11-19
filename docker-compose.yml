@@ -9,9 +9,9 @@ services:
     restart: unless-stopped
     read_only: true
     tmpfs:
-      - /tmp
-      - /var/cache/nginx
-      - /var/run
+      - /tmp:rw,noexec,nosuid,mode=1777
+      - /var/cache/nginx:rw,noexec,nosuid,uid=101,gid=101
+      - /var/run:rw,noexec,nosuid,uid=101,gid=101
     security_opt:
       - no-new-privileges:true
     cap_drop:
