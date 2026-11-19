@@ -65,7 +65,7 @@ export function sanitizeLesson(raw: unknown): MicroLesson {
   if (blocks.length === 0) {
     throw new Error('La leccion no contiene bloques validos.');
   }
-  return {
+  const sanitized: MicroLesson & { extractedGlossary?: Record<string, unknown> } = {
     lessonId:
       typeof lesson.lessonId === 'string' && lesson.lessonId
         ? lesson.lessonId
@@ -77,4 +77,8 @@ export function sanitizeLesson(raw: unknown): MicroLesson {
       : 10,
     blocks,
   };
+  if (lesson.extractedGlossary && typeof lesson.extractedGlossary === 'object' && !Array.isArray(lesson.extractedGlossary)) {
+    sanitized.extractedGlossary = lesson.extractedGlossary as Record<string, unknown>;
+  }
+  return sanitized;
 }

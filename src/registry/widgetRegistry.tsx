@@ -1,58 +1,132 @@
-import type { ReactNode } from 'react';
-import type { LessonBlock } from '../types/cartridge.types';
-import { MemoryHeapVisualizer } from './visualizers/MemoryHeapVisualizer';
-import { AstExpressionCollapser } from './visualizers/AstExpressionCollapser';
-import { DataFrameDiffVisualizer } from './visualizers/DataFrameDiffVisualizer';
-import { OopClassDiagramVisualizer } from './visualizers/OopClassDiagramVisualizer';
-import { FileCursorTapeVisualizer } from './visualizers/FileCursorTapeVisualizer';
-import { GpuMediaStage } from './visualizers/GpuMediaStage';
-import { CodeLabWorkspace } from './challenges/CodeLabWorkspace';
-import { AstStructuralChallenge } from './challenges/AstStructuralChallenge';
-import { OutputPredictionCard } from './challenges/OutputPredictionCard';
-import { ParsonsDragPuzzle } from './challenges/ParsonsDragPuzzle';
-import { BugAutopsyChallenge } from './challenges/BugAutopsyChallenge';
+import { Suspense, lazy, type ReactNode } from 'react';
+import type { DeviceMode, LessonBlock } from '../types/cartridge.types';
+
+const MemoryHeapVisualizer = lazy(() =>
+  import('./visualizers/MemoryHeapVisualizer').then((m) => ({ default: m.MemoryHeapVisualizer }))
+);
+const AstExpressionCollapser = lazy(() =>
+  import('./visualizers/AstExpressionCollapser').then((m) => ({ default: m.AstExpressionCollapser }))
+);
+const DataFrameDiffVisualizer = lazy(() =>
+  import('./visualizers/DataFrameDiffVisualizer').then((m) => ({ default: m.DataFrameDiffVisualizer }))
+);
+const OopClassDiagramVisualizer = lazy(() =>
+  import('./visualizers/OopClassDiagramVisualizer').then((m) => ({ default: m.OopClassDiagramVisualizer }))
+);
+const FileCursorTapeVisualizer = lazy(() =>
+  import('./visualizers/FileCursorTapeVisualizer').then((m) => ({ default: m.FileCursorTapeVisualizer }))
+);
+const GpuMediaStage = lazy(() =>
+  import('./visualizers/GpuMediaStage').then((m) => ({ default: m.GpuMediaStage }))
+);
+const CodeLabWorkspace = lazy(() =>
+  import('./challenges/CodeLabWorkspace').then((m) => ({ default: m.CodeLabWorkspace }))
+);
+const AstStructuralChallenge = lazy(() =>
+  import('./challenges/AstStructuralChallenge').then((m) => ({ default: m.AstStructuralChallenge }))
+);
+const OutputPredictionCard = lazy(() =>
+  import('./challenges/OutputPredictionCard').then((m) => ({ default: m.OutputPredictionCard }))
+);
+const ParsonsDragPuzzle = lazy(() =>
+  import('./challenges/ParsonsDragPuzzle').then((m) => ({ default: m.ParsonsDragPuzzle }))
+);
+const BugAutopsyChallenge = lazy(() =>
+  import('./challenges/BugAutopsyChallenge').then((m) => ({ default: m.BugAutopsyChallenge }))
+);
+const SyntaxClozeChallenge = lazy(() =>
+  import('./challenges/SyntaxClozeChallenge').then((m) => ({ default: m.SyntaxClozeChallenge }))
+);
+const QuickQuizChallenge = lazy(() =>
+  import('./challenges/QuickQuizChallenge').then((m) => ({ default: m.QuickQuizChallenge }))
+);
+const PcOnlyLabHandoffCard = lazy(() =>
+  import('./challenges/PcOnlyLabHandoffCard').then((m) => ({ default: m.PcOnlyLabHandoffCard }))
+);
 
 export interface WidgetRenderOptions {
   onResolved?: () => void;
+  deviceMode?: DeviceMode;
+}
+
+function WidgetLoaderFallback() {
+  return (
+    <div className="flex h-full items-center justify-center p-6">
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-subtle border-t-accent" />
+    </div>
+  );
 }
 
 /**
- * Polymorphic widget router. Maps any LessonBlock variant to its isolated
- * React component. New visualizers/challenges can be registered here without
- * touching the layout shells.
+ * Polymorphic widget router. Maps any LessonBlock variant to its lazy-loaded
+ * React component. Enforces PC-only execution for CODE_LAB and AST_CHALLENGE.
  */
 export function renderBlockWidget(block: LessonBlock, options?: WidgetRenderOptions): ReactNode {
+  const deviceMode = options?.deviceMode ?? 'PC';
+  let content: ReactNode = null;
+
   switch (block.type) {
     case 'INTERACTIVE_VISUALIZER':
       switch (block.visualizerKind) {
         case 'MEMORY_MODEL':
-          return <MemoryHeapVisualizer block={block} />;
+          content = <MemoryHeapVisualizer block={block} />;
+          break;
         case 'AST_COLLAPSER':
-          return <AstExpressionCollapser block={block} />;
+          content = <AstExpressionCollapser block={block} />;
+          break;
         case 'DATAFRAME_DIFF':
-          return <DataFrameDiffVisualizer block={block} />;
+          content = <DataFrameDiffVisualizer block={block} />;
+          break;
         case 'OOP_CLASS_GRAPH':
-          return <OopClassDiagramVisualizer block={block} />;
+          content = <OopClassDiagramVisualizer block={block} />;
+          break;
         case 'FILE_CURSOR_TAPE':
-          return <FileCursorTapeVisualizer block={block} />;
+          content = <FileCursorTapeVisualizer block={block} />;
+          break;
         default:
-          return null;
+          content = null;
       }
+      break;
     case 'GPU_ANIMATION':
-      return <GpuMediaStage block={block} />;
+      content = <GpuMediaStage block={block} />;
+      break;
     case 'CODE_LAB':
-      return <CodeLabWorkspace block={block} />;
+      content =
+        deviceMode === 'MOBILE' ? (
+          <PcOnlyLabHandoffCard block={block} onResolved={options?.onResolved} />
+        ) : (
+          <CodeLabWorkspace block={block} />
+        );
+      break;
     case 'AST_CHALLENGE':
-      return <AstStructuralChallenge block={block} />;
+      content =
+        deviceMode === 'MOBILE' ? (
+          <PcOnlyLabHandoffCard block={block} onResolved={options?.onResolved} />
+        ) : (
+          <AstStructuralChallenge block={block} />
+        );
+      break;
     case 'OUTPUT_PREDICTION':
-      return <OutputPredictionCard block={block} onResolved={options?.onResolved} />;
+      content = <OutputPredictionCard block={block} onResolved={options?.onResolved} />;
+      break;
     case 'PARSONS_PROBLEM':
-      return <ParsonsDragPuzzle block={block} onResolved={options?.onResolved} />;
+      content = <ParsonsDragPuzzle block={block} onResolved={options?.onResolved} />;
+      break;
     case 'BUG_AUTOPSY':
-      return <BugAutopsyChallenge block={block} onResolved={options?.onResolved} />;
+      content = <BugAutopsyChallenge block={block} onResolved={options?.onResolved} />;
+      break;
+    case 'SYNTAX_CLOZE':
+      content = <SyntaxClozeChallenge block={block} onResolved={options?.onResolved} />;
+      break;
+    case 'QUICK_QUIZ':
+      content = <QuickQuizChallenge block={block} onResolved={options?.onResolved} />;
+      break;
     default:
-      return null;
+      content = null;
   }
+
+  if (!content) return null;
+  return <Suspense fallback={<WidgetLoaderFallback />}>{content}</Suspense>;
 }
 
 export function isInteractiveBlock(block: LessonBlock): boolean {

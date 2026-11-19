@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Upload, X, CheckCircle2, AlertTriangle, FileJson } from 'lucide-react';
 import { validateBookCartridge, type CartridgeDiagnosticSummary } from '../../types/cartridge.schema';
 import { usePlatformStore } from '../../store/usePlatformStore';
@@ -13,6 +13,14 @@ export function CartridgeImporterModal({ onClose }: { onClose: () => void }) {
   const [issues, setIssues] = useState<string[]>([]);
   const [pendingJson, setPendingJson] = useState<unknown>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
 
   const processText = useCallback((text: string) => {
     setDiagnostics(null);
@@ -36,8 +44,14 @@ export function CartridgeImporterModal({ onClose }: { onClose: () => void }) {
 
   const handleFile = useCallback(
     (file: File) => {
+      const MAX_CARTRIDGE_BYTES = 25 * 1024 * 1024;
+      if (file.size > MAX_CARTRIDGE_BYTES) {
+        setIssues(['El archivo excede el limite maximo permitido de 25 MB.']);
+        return;
+      }
       const reader = new FileReader();
       reader.onload = () => processText(String(reader.result ?? ''));
+      reader.onerror = () => setIssues(['No se pudo leer el archivo seleccionado.']);
       reader.readAsText(file);
     },
     [processText]
@@ -57,11 +71,21 @@ export function CartridgeImporterModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Importar Cartucho JSON"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+    >
       <div className="w-full max-w-lg rounded-lg border border-subtle bg-surface">
         <div className="flex items-center justify-between border-b border-subtle px-4 py-3">
           <h3 className="text-sm font-semibold text-primary">Importar Cartucho JSON</h3>
-          <button type="button" onClick={onClose} className="text-muted hover:text-primary">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Cerrar modal"
+            className="text-muted hover:text-primary"
+          >
             <X size={16} />
           </button>
         </div>

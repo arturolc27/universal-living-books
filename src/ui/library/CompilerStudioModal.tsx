@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   X,
   Upload,
@@ -23,11 +23,9 @@ import {
   Zap,
 } from 'lucide-react';
 import { usePlatformStore } from '../../store/usePlatformStore';
-import type { SectionChunk, TracedSnippet } from '../../engine/compiler/semanticChunker';
+import type { SectionChunk } from '../../engine/compiler/semanticChunker';
 import {
-  ParallelBookCompiler,
   buildPreFlightQuote,
-  createSectionTasks,
   getPricing,
   MODEL_PRICING,
 } from '../../engine/compiler/parallelCompilerEngine';
@@ -36,10 +34,19 @@ import {
   segmentBookByIndex,
 } from '../../engine/compiler/metadataTocExtractor';
 import {
-  ParallelMemoryTracer,
-  collectTracerSnippets,
-} from '../../engine/compiler/parallelMemoryTracer';
-import { extractPdfInWorker } from '../../engine/compiler/pdfExtractor';
+  extractBookSource,
+  type BookSourceNativeMetadata,
+} from '../../engine/compiler/bookSourceAdapter';
+import {
+  generateEditorialCoverDataUrl,
+  optimizeBookCover,
+  saveBookCoverAssets,
+  type OptimizedCoverResult,
+} from '../../engine/compiler/coverPipeline';
+import {
+  compilationOrchestrator,
+  useCompilationOrchestrator,
+} from '../../engine/compiler/compilationOrchestrator';
 import { livingBooksDb } from '../../db/dexieDb';
 import type { BookCartridge } from '../../types/cartridge.types';
 import type {
@@ -111,12 +118,15 @@ function estimateChapterCost(chars: number, config: CompilerJobConfig): number {
 
 export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
   const settings = usePlatformStore((s) => s.settings);
-  const pushToast = usePlatformStore((s) => s.pushToast);
-  const registerCartridge = usePlatformStore((s) => s.registerCartridge);
+  const orchestrator = useCompilationOrchestrator();
 
-  const [view, setView] = useState<View>('CONFIG');
+  const [view, setView] = useState<View>(() => (orchestrator.phase !== 'IDLE' ? 'RUNNING' : 'CONFIG'));
   const [rawText, setRawText] = useState('');
   const [coverDataUrl, setCoverDataUrl] = useState<string | null>(null);
+  const [optimizedCover, setOptimizedCover] = useState<OptimizedCoverResult | null>(null);
+  const [nativeMetadata, setNativeMetadata] = useState<BookSourceNativeMetadata | undefined>(undefined);
+  const [extractedTotalPages, setExtractedTotalPages] = useState<number>(0);
+  const [isScannedWarning, setIsScannedWarning] = useState(false);
   const [metadata, setMetadata] = useState<BookMetadataDraft | null>(null);
   const [chaptersIndex, setChaptersIndex] = useState<ChapterIndexEntry[]>([]);
   const [chunks, setChunks] = useState<SectionChunk[]>([]);
@@ -128,23 +138,21 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
     maxRetries: 2,
     outputExpansionFactor: 1.45,
   });
-  const [telemetry, setTelemetry] = useState<TelemetrySnapshot | null>(null);
-  const [tracerTelemetry, setTracerTelemetry] = useState<TracerTelemetryState | null>(null);
-  const [sections, setSections] = useState<Record<string, SectionTaskState>>({});
-  const [log, setLog] = useState<string[]>([]);
+  const [localLog, setLocalLog] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [readyChapters, setReadyChapters] = useState<number[]>([]);
   const [isExtracting, setIsExtracting] = useState(false);
   const [isExtractingPdf, setIsExtractingPdf] = useState(false);
   const [pdfProgress, setPdfProgress] = useState<{ page: number; total: number } | null>(null);
-  const [isTracing, setIsTracing] = useState(false);
-  const [tracerPaused, setTracerPaused] = useState(false);
-  const [compilerPaused, setCompilerPaused] = useState(false);
 
-  const compilerRef = useRef<ParallelBookCompiler | null>(null);
-  const tracerRef = useRef<ParallelMemoryTracer | null>(null);
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
 
-  const appendLog = useCallback((line: string) => setLog((prev) => [...prev.slice(-80), line]), []);
+  const appendLog = useCallback((line: string) => setLocalLog((prev) => [...prev.slice(-80), line]), []);
 
   const bookId = useMemo(() => (metadata ? slugify(metadata.title) : 'libro-compilado'), [metadata]);
 
@@ -169,24 +177,23 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
     setChaptersIndex([]);
     setChunks([]);
     setCoverDataUrl(null);
-    const isPdf = file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf';
     try {
-      if (isPdf) {
-        setIsExtractingPdf(true);
-        setPdfProgress({ page: 0, total: 0 });
-        appendLog(`Extrayendo texto y portada de ${file.name} en segundo plano (sin bloquear la UI)...`);
-        const result = await extractPdfInWorker(file, (p) => setPdfProgress(p), { wantCover: true });
-        setRawText(result.text);
-        setCoverDataUrl(result.coverDataUrl);
-        appendLog(
-          `PDF procesado: ${result.text.length.toLocaleString()} caracteres` +
-            (result.coverDataUrl ? ' + portada extraida.' : '.')
-        );
-      } else {
-        const text = await file.text();
-        setRawText(text);
-        appendLog(`Archivo cargado: ${text.length.toLocaleString()} caracteres.`);
-      }
+      setIsExtractingPdf(true);
+      setPdfProgress({ page: 0, total: 0 });
+      appendLog(`Extrayendo ${file.name} en segundo plano (sin bloquear la UI)...`);
+      const result = await extractBookSource(file, (p) =>
+        setPdfProgress({ page: p.current, total: p.total })
+      );
+      setRawText(result.text);
+      setCoverDataUrl(result.coverDataUrl);
+      setNativeMetadata(result.nativeMetadata);
+      setExtractedTotalPages(result.totalPages);
+      setOptimizedCover(null);
+      setIsScannedWarning(false);
+      appendLog(
+        `${result.format.toUpperCase()} procesado: ${result.text.length.toLocaleString()} caracteres, ${result.totalPages} paginas/secciones` +
+          (result.coverDataUrl ? ' + portada extraida.' : '.')
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -226,12 +233,35 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
         geminiApiKey: settings.geminiApiKey,
         ollamaBaseUrl: 'http://localhost:11434',
         model: provider === 'gemini' ? settings.geminiModel : config.fastModel,
-      }, { onLog: appendLog, coverImageDataUrl: coverDataUrl ?? undefined });
+      }, {
+        onLog: appendLog,
+        coverImageDataUrl: coverDataUrl ?? undefined,
+        nativeMetadata,
+        totalPages: extractedTotalPages,
+      });
 
-      // Fija los metadatos de inmediato, aunque falle la consulta a la base de datos.
-      setMetadata(result.metadata);
+      setIsScannedWarning(result.isScannedLikely);
 
-      const id = slugify(result.metadata.title);
+      // Optimizar portada (o generar portada editorial limpia si no existe) y extraer ThemeDNA accesible
+      const optimized = await optimizeBookCover(
+        coverDataUrl,
+        result.metadata.title,
+        result.metadata.authors,
+        result.metadata.coverAccentIcon
+      );
+      setOptimizedCover(optimized);
+      if (optimized.cardDataUrl) {
+        setCoverDataUrl(optimized.cardDataUrl);
+      }
+
+      const finalMetadata: BookMetadataDraft = {
+        ...result.metadata,
+        coverImageDataUrl: optimized.cardDataUrl || result.metadata.coverImageDataUrl,
+        themeDNA: optimized.extractedThemeDNA ?? result.metadata.themeDNA,
+      };
+      setMetadata(finalMetadata);
+
+      const id = slugify(finalMetadata.title);
       let withStatus = result.chaptersIndex;
       try {
         withStatus = await refreshDbStatus(result.chaptersIndex, id);
@@ -250,7 +280,7 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
 
       setChaptersIndex(withCosts);
       appendLog(
-        `Fase 0 completa: "${result.metadata.title}" con ${withCosts.length} capitulos ` +
+        `Fase 0 completa: "${finalMetadata.title}" con ${withCosts.length} capitulos ` +
           `(${withCosts.filter((c) => c.selectionState).length} preseleccionados).`
       );
     } catch (err) {
@@ -258,6 +288,58 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
     } finally {
       setIsExtracting(false);
     }
+  };
+
+  const handleCustomCoverUpload = async (file: File) => {
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const rawUrl = String(reader.result ?? '');
+      if (!rawUrl || !metadata) return;
+      const optimized = await optimizeBookCover(
+        rawUrl,
+        metadata.title,
+        metadata.authors,
+        metadata.coverAccentIcon
+      );
+      setOptimizedCover(optimized);
+      setCoverDataUrl(optimized.cardDataUrl || rawUrl);
+      setMetadata((prev) =>
+        prev
+          ? {
+              ...prev,
+              coverImageDataUrl: optimized.cardDataUrl || rawUrl,
+              themeDNA: optimized.extractedThemeDNA ?? prev.themeDNA,
+            }
+          : prev
+      );
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRegenerateCover = async () => {
+    if (!metadata) return;
+    const svgFallback = generateEditorialCoverDataUrl(
+      metadata.title,
+      metadata.authors,
+      metadata.coverAccentIcon
+    );
+    const optimized = await optimizeBookCover(
+      svgFallback,
+      metadata.title,
+      metadata.authors,
+      metadata.coverAccentIcon
+    );
+    setOptimizedCover(optimized);
+    setCoverDataUrl(optimized.cardDataUrl || null);
+    setMetadata((prev) =>
+      prev
+        ? {
+            ...prev,
+            coverImageDataUrl: optimized.cardDataUrl || undefined,
+            themeDNA: optimized.extractedThemeDNA ?? prev.themeDNA,
+          }
+        : prev
+    );
   };
 
   const updateMetadataField = <K extends keyof BookMetadataDraft>(key: K, value: BookMetadataDraft[K]) => {
@@ -304,136 +386,47 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
     }
     setChunks(bookChunks);
     setView('RUNNING');
-    setReadyChapters([]);
-    setTracerPaused(false);
-    setCompilerPaused(false);
 
-    // --- FASE A: TRAZADOR DE MEMORIA PARALELO ---
-    const snippets = collectTracerSnippets(bookChunks);
-    let traces: TracedSnippet[] = [];
-    if (snippets.length > 0) {
-      setIsTracing(true);
-      appendLog(`Fase A: ${snippets.length} snippets detectados. Iniciando trazador paralelo.`);
-      const tracer = new ParallelMemoryTracer({
-        workerCount: 4,
-        maxSteps: 35,
-        timeoutMs: 500,
-        callbacks: {
-          onTelemetry: setTracerTelemetry,
-          onLog: appendLog,
-        },
-      });
-      tracerRef.current = tracer;
-      try {
-        const results = await tracer.traceSnippets(snippets);
-        traces = results
-          .filter((r) => r.memorySteps.length > 0)
-          .map((r) => ({
-            sectionId: r.sectionId,
-            snippetIndex: r.snippetIndex,
-            code: r.code,
-            memorySteps: r.memorySteps,
-          }));
-        appendLog(`Fase A completa: ${traces.length} trazas utiles de ${snippets.length} snippets.`);
-      } catch (err) {
-        appendLog(`Fase A fallo: ${err instanceof Error ? err.message : String(err)}`);
-      } finally {
-        // Libera los workers de Pyodide para no dejar procesos colgados.
-        tracer.dispose();
-        tracerRef.current = null;
-        setIsTracing(false);
-      }
-    } else {
-      appendLog('Fase A: no hay snippets trazables en los capitulos seleccionados.');
+    if (optimizedCover) {
+      void saveBookCoverAssets(bookId, optimizedCover).catch(() => {});
     }
 
-    // --- FASE B: COMPILADOR MULTI-AGENTE LLM ---
-    const job: CompilationJob = {
-      jobId: `job-${Date.now()}`,
+    void compilationOrchestrator.startCompilation({
       bookId,
-      title: metadata.title,
-      status: 'RUNNING',
-      config,
-      sectionsMap: createSectionTasks(bookChunks, config),
-      totalSpentUsd: 0,
-      totalEstimatedUsd: quote?.expectedCostUsd ?? selectedEstimatedCost,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-    setSections(job.sectionsMap);
-
-    const compiler = new ParallelBookCompiler({
-      job,
+      metadata,
       chunks: bookChunks,
-      traces,
-      meta: {
-        bookId,
-        metadata: toCartridgeMetadata(metadata),
-        themeDNA: metadata.themeDNA,
-        runtimeRequirements: {
-          pythonVersion: '3.14',
-          packages: [],
-          enableLiveMemoryTracer: true,
-          virtualFileSystemSeed: {},
-        },
-      },
+      config,
       credentials: {
         openrouterApiKey: settings.openrouterApiKey,
         geminiApiKey: settings.geminiApiKey,
         ollamaBaseUrl: 'http://localhost:11434',
       },
-      callbacks: {
-        onTelemetry: setTelemetry,
-        onSectionUpdate: (section) => setSections((prev) => ({ ...prev, [section.sectionId]: { ...section } })),
-        onChapterReady: (chapterNumber, cartridge) => {
-          setReadyChapters((prev) => (prev.includes(chapterNumber) ? prev : [...prev, chapterNumber]));
-          setChaptersIndex((prev) =>
-            prev.map((c) => (c.chapterNumber === chapterNumber ? { ...c, dbStatus: 'IN_DATABASE' } : c))
-          );
-          void registerCartridge(cartridge, false);
-          pushToast({
-            title: `Capitulo ${chapterNumber} fusionado`,
-            description: 'Ya puedes abrirlo en la Biblioteca.',
-            iconKey: 'check',
-          });
-        },
-        onLog: appendLog,
+      estimatedCostFallback: selectedEstimatedCost,
+      onChapterReady: (chapterNumber) => {
+        setChaptersIndex((prev) =>
+          prev.map((c) => (c.chapterNumber === chapterNumber ? { ...c, dbStatus: 'IN_DATABASE' } : c))
+        );
       },
     });
-
-    compilerRef.current = compiler;
-    await compiler.start();
   };
 
-  const handlePauseTracer = () => {
-    if (tracerPaused) {
-      tracerRef.current?.resume();
-      setTracerPaused(false);
-    } else {
-      tracerRef.current?.pause();
-      setTracerPaused(true);
-    }
-  };
+  const telemetry = orchestrator.telemetry;
+  const tracerTelemetry = orchestrator.tracerTelemetry;
+  const sections = orchestrator.sections;
+  const readyChapters = orchestrator.readyChapters;
+  const log = orchestrator.log.length > 0 ? orchestrator.log : localLog;
+  const isTracing = orchestrator.phase === 'TRACING';
+  const tracerPaused = orchestrator.tracerPaused;
+  const compilerPaused = orchestrator.compilerPaused;
 
-  const handlePauseCompiler = () => {
-    if (compilerPaused) {
-      appendLog('Reanudacion del compilador no soportada en caliente; reinicia la compilacion.');
-      return;
-    }
-    compilerRef.current?.pause();
-    setCompilerPaused(true);
-  };
-
-  const handleCancel = () => {
-    compilerRef.current?.cancel();
-    tracerRef.current?.cancel();
-    appendLog('Cancelacion solicitada.');
-  };
+  const handlePauseTracer = () => compilationOrchestrator.togglePauseTracer();
+  const handlePauseCompiler = () => void compilationOrchestrator.togglePauseCompiler();
+  const handleCancel = () => compilationOrchestrator.cancelAll();
+  const handleRetryFailed = () => void compilationOrchestrator.retryFailed();
 
   const handleConcurrency = (delta: number) => {
     const next = Math.max(1, Math.min(8, config.concurrencyLimit + delta));
     setConfig((c) => ({ ...c, concurrencyLimit: next }));
-    compilerRef.current?.setConcurrency(next);
   };
 
   const sectionList = useMemo(
@@ -442,6 +435,11 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
         (a, b) => a.chapterNumber - b.chapterNumber || a.sectionId.localeCompare(b.sectionId)
       ),
     [sections]
+  );
+
+  const failedCount = useMemo(
+    () => sectionList.filter((s) => s.status === 'FAILED').length,
+    [sectionList]
   );
 
   const progressPct =
@@ -462,27 +460,55 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
       : 0;
 
   return (
-    <div className="fixed inset-0 z-[78] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Estudio de Ingesta Incremental"
+      className="fixed inset-0 z-[78] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+    >
       <div className="glass-strong flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-subtle">
         <div className="flex items-center justify-between border-b border-subtle px-4 py-3">
           <div className="flex items-center gap-2">
             <Sparkles size={16} className="text-accent" />
             <h3 className="text-sm font-semibold text-primary">Estudio de Ingesta Incremental</h3>
             <span className="rounded-full bg-elevated px-2 py-0.5 text-[10px] text-muted">
-              {metadata ? metadata.title : 'Multi-Agente'}
+              {metadata?.title || orchestrator.bookTitle || 'Multi-Agente'}
             </span>
           </div>
           <div className="flex items-center gap-2">
-            {view === 'RUNNING' && (
+            {view === 'RUNNING' && (orchestrator.phase === 'TRACING' || orchestrator.phase === 'COMPILING' || orchestrator.phase === 'PAUSED') && (
+              <>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20"
+                >
+                  Seguir en segundo plano
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancel}
+                  className="flex items-center gap-1.5 rounded-lg border border-danger/50 px-3 py-1.5 text-xs text-danger hover:bg-danger/10"
+                >
+                  <Square size={13} /> Cancelar
+                </button>
+              </>
+            )}
+            {view === 'RUNNING' && failedCount > 0 && orchestrator.phase !== 'COMPILING' && (
               <button
                 type="button"
-                onClick={handleCancel}
-                className="flex items-center gap-1.5 rounded-lg border border-danger/50 px-3 py-1.5 text-xs text-danger hover:bg-danger/10"
+                onClick={handleRetryFailed}
+                className="flex items-center gap-1.5 rounded-lg border border-secondary/50 bg-secondary/10 px-3 py-1.5 text-xs font-medium text-secondary hover:bg-secondary/20"
               >
-                <Square size={13} /> Cancelar
+                <RefreshCw size={13} /> Reintentar fallidos ({failedCount})
               </button>
             )}
-            <button type="button" onClick={onClose} className="text-muted hover:text-primary">
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Cerrar estudio de compilacion"
+              className="text-muted hover:text-primary"
+            >
               <X size={16} />
             </button>
           </div>
@@ -501,12 +527,12 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
                     )}
                     <span className="text-[11px] text-muted">
                       {isExtractingPdf
-                        ? `Extrayendo PDF... ${pdfProgress?.total ? `${pdfProgress.page}/${pdfProgress.total} pags` : ''}`
-                        : 'Cargar PDF / TXT / MD del libro'}
+                        ? `Extrayendo libro... ${pdfProgress?.total ? `${pdfProgress.page}/${pdfProgress.total}` : ''}`
+                        : 'Cargar PDF / EPUB / TXT / MD del libro'}
                     </span>
                     <input
                       type="file"
-                      accept=".pdf,.txt,.md,.markdown"
+                      accept=".pdf,.epub,.txt,.md,.markdown"
                       className="hidden"
                       disabled={isExtractingPdf}
                       onChange={(e) => {
@@ -607,16 +633,63 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
                 </div>
               </div>
 
-              {coverDataUrl && (
-                <div className="flex items-center gap-3 rounded-xl border border-subtle bg-canvas p-3">
-                  <img
-                    src={coverDataUrl}
-                    alt="Portada extraida"
-                    className="h-24 w-16 rounded-lg border border-subtle object-cover"
-                  />
+              {isScannedWarning && (
+                <div className="flex items-start gap-2 rounded-xl border border-secondary/50 bg-secondary/10 p-3 text-xs text-secondary">
+                  <AlertTriangle size={15} className="mt-0.5 shrink-0" />
                   <div>
-                    <p className="text-xs font-semibold text-primary">Portada extraida del PDF</p>
-                    <p className="text-[10px] text-muted">Se usara como miniatura en la Biblioteca.</p>
+                    <p className="font-semibold">PDF con muy poco texto detectado (posible documento escaneado)</p>
+                    <p className="mt-0.5 text-[11px] opacity-90">
+                      Si el PDF contiene imagenes sin capa OCR, las heuristicas pueden extraer pocos capitulos. Puedes pegar texto limpio o verificar los capitulos antes de compilar.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {(coverDataUrl || metadata) && (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-subtle bg-canvas p-3">
+                  <div className="flex items-center gap-3">
+                    {coverDataUrl ? (
+                      <img
+                        src={coverDataUrl}
+                        alt="Portada optimizada"
+                        className="h-24 w-16 rounded-lg border border-subtle object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-24 w-16 items-center justify-center rounded-lg border border-dashed border-subtle bg-surface text-2xl">
+                        {metadata?.coverAccentIcon ?? '📘'}
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-xs font-semibold text-primary">
+                        {coverDataUrl ? 'Portada optimizada (WebP)' : 'Sin portada incrustada'}
+                      </p>
+                      <p className="text-[10px] text-muted">
+                        Se guarda en IndexedDB como icono (128x176) y tarjeta (400x560) con paleta WCAG AA.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1.5 sm:flex-row">
+                    {metadata && (
+                      <button
+                        type="button"
+                        onClick={handleRegenerateCover}
+                        className="flex items-center gap-1 rounded-lg border border-subtle px-2.5 py-1.5 text-[11px] text-secondary hover:border-accent/50"
+                      >
+                        <Wand2 size={12} /> Generar editorial
+                      </button>
+                    )}
+                    <label className="flex cursor-pointer items-center gap-1 rounded-lg border border-subtle px-2.5 py-1.5 text-[11px] text-primary hover:border-accent/50">
+                      <Upload size={12} /> Subir imagen
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) void handleCustomCoverUpload(f);
+                        }}
+                      />
+                    </label>
                   </div>
                 </div>
               )}
@@ -750,6 +823,48 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
 
           {view === 'RUNNING' && (
             <div className="space-y-4">
+              {/* Stepper de 5 fases */}
+              <div className="grid grid-cols-5 gap-1.5 rounded-xl border border-subtle bg-canvas p-2.5">
+                {[
+                  { id: 'READ', label: '1. Lectura', done: true, active: false },
+                  { id: 'STRUCT', label: '2. Estructura', done: true, active: false },
+                  {
+                    id: 'TRACE',
+                    label: '3. Trazado',
+                    done: orchestrator.phase === 'COMPILING' || orchestrator.phase === 'PAUSED' || orchestrator.phase === 'COMPLETED',
+                    active: orchestrator.phase === 'TRACING',
+                  },
+                  {
+                    id: 'DESIGN',
+                    label: '4. Diseño IA',
+                    done: orchestrator.phase === 'COMPLETED',
+                    active: orchestrator.phase === 'COMPILING' || orchestrator.phase === 'PAUSED',
+                  },
+                  {
+                    id: 'SAVE',
+                    label: '5. Guardado',
+                    done: orchestrator.phase === 'COMPLETED',
+                    active: false,
+                  },
+                ].map((step) => (
+                  <div
+                    key={step.id}
+                    className={cn(
+                      'flex items-center justify-center gap-1 rounded-lg border px-2 py-1.5 text-[10px] font-medium transition-colors',
+                      step.active
+                        ? 'border-accent bg-accent/15 text-accent'
+                        : step.done
+                          ? 'border-success/40 bg-success/10 text-success'
+                          : 'border-subtle bg-surface text-muted',
+                    )}
+                  >
+                    {step.active && <Loader2 size={10} className="animate-spin" />}
+                    {!step.active && step.done && <CheckCircle2 size={10} />}
+                    <span className="truncate">{step.label}</span>
+                  </div>
+                ))}
+              </div>
+
               {/* FASE A: TRAZADOR DE MEMORIA PARALELO */}
               <div className="rounded-xl border border-subtle bg-canvas p-3">
                 <div className="mb-2 flex items-center justify-between">
@@ -794,10 +909,11 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
                   <button
                     type="button"
                     onClick={handlePauseCompiler}
-                    disabled={compilerPaused}
+                    disabled={orchestrator.phase !== 'COMPILING' && orchestrator.phase !== 'PAUSED'}
                     className="flex items-center gap-1 rounded-lg border border-subtle px-2 py-1 text-[10px] text-secondary hover:border-secondary/50 disabled:opacity-40"
                   >
-                    <Pause size={11} /> Pausar y Guardar
+                    {compilerPaused ? <Play size={11} /> : <Pause size={11} />}
+                    {compilerPaused ? 'Reanudar' : 'Pausar y Guardar'}
                   </button>
                 </div>
                 <div className="h-2 w-full overflow-hidden rounded-full bg-elevated">

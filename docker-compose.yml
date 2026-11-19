@@ -1,0 +1,26 @@
+services:
+  universal-living-books:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_APP_ACCESS_PIN_SHA256: ${VITE_APP_ACCESS_PIN_SHA256:-}
+    container_name: universal-living-books
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      - "127.0.0.1:${APP_PORT:-8085}:8080"
+    networks:
+      - living_books_net
+
+networks:
+  living_books_net:
+    driver: bridge

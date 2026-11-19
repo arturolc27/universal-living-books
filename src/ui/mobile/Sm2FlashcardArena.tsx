@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { RotateCw, Target, CheckCircle2, Clock } from 'lucide-react';
 import { usePlatformStore } from '../../store/usePlatformStore';
@@ -34,7 +34,13 @@ export function Sm2FlashcardArena() {
   const [index, setIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
 
-  const current = queue[index];
+  useEffect(() => {
+    setIndex(0);
+    setFlipped(false);
+  }, [activeBookId]);
+
+  const safeIndex = queue.length > 0 ? Math.min(index, queue.length - 1) : 0;
+  const current = queue[safeIndex];
 
   const handleGrade = async (grade: Sm2Grade) => {
     if (!current) return;
@@ -51,7 +57,7 @@ export function Sm2FlashcardArena() {
     );
   }
 
-  if (queue.length === 0) {
+  if (queue.length === 0 || !current) {
     return (
       <div className="flex h-full items-center justify-center p-6 text-center text-xs text-muted">
         Este libro no tiene tarjetas de repaso configuradas.
@@ -64,7 +70,7 @@ export function Sm2FlashcardArena() {
       <div className="flex items-center justify-between border-b border-subtle px-3 py-2">
         <h3 className="text-sm font-semibold text-primary">Arena SM-2</h3>
         <span className="rounded-full bg-elevated px-2 py-0.5 text-[10px] text-muted">
-          {index + 1} / {queue.length}
+          {safeIndex + 1} / {queue.length}
         </span>
       </div>
 

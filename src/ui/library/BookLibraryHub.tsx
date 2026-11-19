@@ -5,6 +5,7 @@ import { usePlatformStore } from '../../store/usePlatformStore';
 import { CartridgeImporterModal } from './CartridgeImporterModal';
 import { CompilerStudioModal } from './CompilerStudioModal';
 import { cn } from '../utils/cn';
+import { isSafeCoverImageUrl } from '../utils/sanitize';
 
 export function BookLibraryHub() {
   const cartridges = usePlatformStore((s) => s.cartridges);
@@ -16,27 +17,43 @@ export function BookLibraryHub() {
 
   const books = useMemo(() => Object.values(cartridges), [cartridges]);
 
-  const progressFor = (bookId: string) => {
-    const records = Object.values(lessonProgressMap).filter((p) => p.bookId === bookId);
-    if (records.length === 0) return 0;
-    const completed = records.filter((r) => r.isCompleted).length;
-    return Math.round((completed / records.length) * 100);
-  };
+  const progressByBook = useMemo(() => {
+    const completedByBook: Record<string, number> = {};
+    for (const p of Object.values(lessonProgressMap)) {
+      if (p.isCompleted) {
+        completedByBook[p.bookId] = (completedByBook[p.bookId] ?? 0) + 1;
+      }
+    }
+    const map: Record<string, number> = {};
+    for (const book of books) {
+      const totalLessons = book.chapters.reduce((acc, ch) => acc + ch.microLessons.length, 0);
+      const completed = completedByBook[book.bookId] ?? 0;
+      map[book.bookId] = totalLessons > 0 ? Math.min(100, Math.round((completed / totalLessons) * 100)) : 0;
+    }
+    return map;
+  }, [books, lessonProgressMap]);
 
-  const dueCardsFor = (bookId: string) => {
+  const dueCardsByBook = useMemo(() => {
     const now = Date.now();
-    return Object.values(srsStates).filter(
-      (s) => s.bookId === bookId && (s.failedInPcLab || s.nextReviewTimestamp <= now)
-    ).length;
-  };
+    const map: Record<string, number> = {};
+    for (const s of Object.values(srsStates)) {
+      if (s.failedInPcLab || s.nextReviewTimestamp <= now) {
+        map[s.bookId] = (map[s.bookId] ?? 0) + 1;
+      }
+    }
+    return map;
+  }, [srsStates]);
+
+  const progressFor = (bookId: string) => progressByBook[bookId] ?? 0;
+  const dueCardsFor = (bookId: string) => dueCardsByBook[bookId] ?? 0;
 
   const continueBook = useMemo(() => {
     const withProgress = books
-      .map((b) => ({ book: b, progress: progressFor(b.bookId) }))
+      .map((b) => ({ book: b, progress: progressByBook[b.bookId] ?? 0 }))
       .filter((x) => x.progress > 0 && x.progress < 100)
       .sort((a, b) => b.progress - a.progress);
     return withProgress[0]?.book ?? books[0] ?? null;
-  }, [books, lessonProgressMap]);
+  }, [books, progressByBook]);
 
   return (
     <div className="h-full overflow-y-auto">
@@ -135,7 +152,7 @@ export function BookLibraryHub() {
                     background: `linear-gradient(90deg, ${book.themeDNA.colors.accentPrimary}, ${book.themeDNA.colors.accentSecondary})`,
                   }}
                 />
-                {book.metadata.coverImageDataUrl ? (
+                {isSafeCoverImageUrl(book.metadata.coverImageDataUrl) ? (
                   <img
                     src={book.metadata.coverImageDataUrl}
                     alt={`Portada de ${book.metadata.title}`}

@@ -1,4 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
+import { zlibSync, unzlibSync, strToU8, strFromU8 } from 'fflate';
+import type { PcLabQueueItem } from '../store/usePlatformStore';
 import {
   livingBooksDb,
   type LessonProgressRecord,
@@ -17,6 +19,7 @@ export interface SyncDeltaSnapshot {
   savedUserCode: SavedUserCodeRecord[];
   unlockedAchievements: UnlockedAchievementRecord[];
   userStats: UserStatsRecord | null;
+  pcLabQueue?: PcLabQueueItem[];
 }
 
 export interface SupabaseSyncConfig {
@@ -26,6 +29,33 @@ export interface SupabaseSyncConfig {
 }
 
 const SUPABASE_CONFIG_STORAGE_KEY = 'living_books_supabase_sync_v2';
+const PC_LAB_QUEUE_STORAGE_KEY = 'ulb_pc_lab_queue';
+
+function readPcLabQueue(): PcLabQueueItem[] {
+  if (typeof localStorage === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(PC_LAB_QUEUE_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function mergePcLabQueue(incoming: PcLabQueueItem[] | undefined): void {
+  if (typeof localStorage === 'undefined' || !incoming || incoming.length === 0) return;
+  const current = readPcLabQueue();
+  const seen = new Set(current.map((q) => `${q.bookId}::${q.lessonId}::${q.blockId}`));
+  const merged = [...current];
+  for (const item of incoming) {
+    const key = `${item.bookId}::${item.lessonId}::${item.blockId}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      merged.push(item);
+    }
+  }
+  localStorage.setItem(PC_LAB_QUEUE_STORAGE_KEY, JSON.stringify(merged));
+}
 
 export function loadSavedSupabaseConfig(): SupabaseSyncConfig | null {
   try {
@@ -72,6 +102,7 @@ export async function exportSyncSnapshot(deviceTag = 'living-book-client'): Prom
     savedUserCode,
     unlockedAchievements,
     userStats: userStats ?? null,
+    pcLabQueue: readPcLabQueue(),
   };
 
   return JSON.stringify(payload, null, 2);
@@ -80,19 +111,24 @@ export async function exportSyncSnapshot(deviceTag = 'living-book-client'): Prom
 export async function exportCompactSyncCode(): Promise<string> {
   const json = await exportSyncSnapshot('compact-qr-bridge');
   const minified = JSON.stringify(JSON.parse(json));
-  const bytes = new TextEncoder().encode(minified);
+  const compressed = zlibSync(strToU8(minified), { level: 6 });
   let binary = '';
-  for (const byte of bytes) {
+  for (const byte of compressed) {
     binary += String.fromCharCode(byte);
   }
-  return `LBSYNC2:${btoa(binary)}`;
+  return `LBSYNCZ2:${btoa(binary)}`;
 }
 
 export async function importSyncSnapshot(
   rawInput: string
 ): Promise<{ mergedRecords: number; exportedAt: number }> {
   let jsonText = rawInput.trim();
-  if (jsonText.startsWith('LBSYNC2:')) {
+  if (jsonText.startsWith('LBSYNCZ2:')) {
+    const base64 = jsonText.slice('LBSYNCZ2:'.length);
+    const binary = atob(base64);
+    const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
+    jsonText = strFromU8(unzlibSync(bytes));
+  } else if (jsonText.startsWith('LBSYNC2:')) {
     const base64 = jsonText.slice('LBSYNC2:'.length);
     const binary = atob(base64);
     const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
@@ -103,6 +139,7 @@ export async function importSyncSnapshot(
   if (snapshot.snapshotVersion !== '2.0') {
     throw new Error('Incompatible sync snapshot version. Expected v2.0.');
   }
+  mergePcLabQueue(snapshot.pcLabQueue);
 
   let mergedRecords = 0;
 

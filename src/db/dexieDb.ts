@@ -73,6 +73,20 @@ export interface MemoryTraceRecord {
   createdAt: number;
 }
 
+export interface DocumentPageRecord {
+  jobId: string;
+  pageNumber: number;
+  text: string;
+}
+
+export interface BookAssetRecord {
+  bookId: string;
+  kind: 'icon' | 'card';
+  blob: Blob;
+  mimeType: string;
+  updatedAt: number;
+}
+
 export class LivingBooksDB extends Dexie {
   installedCartridges!: Table<InstalledCartridgeRecord, string>;
   lessonProgress!: Table<LessonProgressRecord, [string, string]>;
@@ -83,6 +97,8 @@ export class LivingBooksDB extends Dexie {
   virtualFileSystems!: Table<VirtualFileSystemRecord, string>;
   compilationJobs!: Table<CompilationJob, string>;
   memoryTraces!: Table<MemoryTraceRecord, string>;
+  documentPages!: Table<DocumentPageRecord, [string, number]>;
+  bookAssets!: Table<BookAssetRecord, [string, string]>;
 
   constructor() {
     super('LivingBooksDB_v2');
@@ -101,6 +117,10 @@ export class LivingBooksDB extends Dexie {
     this.version(3).stores({
       memoryTraces: 'hash, createdAt',
     });
+    this.version(4).stores({
+      documentPages: '[jobId+pageNumber], jobId, pageNumber',
+      bookAssets: '[bookId+kind], bookId, kind, updatedAt',
+    });
 
     // Diagnostico: evita cuelgues silenciosos por bloqueos de version.
     this.on('blocked', () => {
@@ -118,6 +138,23 @@ export class LivingBooksDB extends Dexie {
 }
 
 export const livingBooksDb = new LivingBooksDB();
+
+export async function getStorageUsageEstimate(): Promise<{
+  usageBytes: number;
+  quotaBytes: number;
+  percentUsed: number;
+} | null> {
+  if (typeof navigator === 'undefined' || !navigator.storage?.estimate) return null;
+  try {
+    const est = await navigator.storage.estimate();
+    const usageBytes = est.usage ?? 0;
+    const quotaBytes = est.quota ?? 0;
+    const percentUsed = quotaBytes > 0 ? Math.round((usageBytes / quotaBytes) * 100) : 0;
+    return { usageBytes, quotaBytes, percentUsed };
+  } catch {
+    return null;
+  }
+}
 
 export function createInitialUserStats(): UserStatsRecord {
   return {

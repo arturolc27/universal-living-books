@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { X, KeyRound, Cloud, Download, Upload, Trash2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { usePlatformStore } from '../../store/usePlatformStore';
 import { exportSyncSnapshot, importSyncSnapshot, syncWithSupabase } from '../../db/syncService';
 import { livingBooksDb } from '../../db/dexieDb';
 import { ModelCombobox } from './ModelCombobox';
 import { cn } from '../utils/cn';
+import { isSafeSupabaseUrl } from '../utils/sanitize';
 
 type Tab = 'COMPILER' | 'SYNC' | 'DATA';
 
@@ -17,16 +18,28 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
   const handleExport = async () => {
-    const json = await exportSyncSnapshot('living-books-ui');
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `living-books-sync-${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    setStatus('Snapshot exportado.');
+    try {
+      const json = await exportSyncSnapshot('living-books-ui');
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `living-books-sync-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setStatus('Snapshot exportado.');
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : String(err));
+    }
   };
 
   const handleImport = async () => {
@@ -46,6 +59,10 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const handleSupabase = async () => {
     if (!settings.supabaseUrl || !settings.supabaseAnonKey) {
       setStatus('Configura la URL y la anon key de Supabase.');
+      return;
+    }
+    if (!isSafeSupabaseUrl(settings.supabaseUrl)) {
+      setStatus('La URL de Supabase debe usar HTTPS (o localhost en desarrollo).');
       return;
     }
     setBusy(true);

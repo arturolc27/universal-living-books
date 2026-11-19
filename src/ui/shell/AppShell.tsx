@@ -17,6 +17,7 @@ import { CommandPalette } from './CommandPalette';
 import { CartridgeImporterModal } from '../library/CartridgeImporterModal';
 import { SettingsModal } from '../settings/SettingsModal';
 import { CompilerStudioModal } from '../library/CompilerStudioModal';
+import { CompilerBackgroundPill } from '../library/CompilerBackgroundPill';
 import { cn } from '../utils/cn';
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -115,6 +116,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Smartphone size={14} />
           </button>
         </div>
+
+        <CompilerBackgroundPill />
 
         <button
           type="button"

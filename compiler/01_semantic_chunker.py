@@ -305,18 +305,65 @@ def main() -> None:
     if not args.no_llm and not api_key:
         print("[01_semantic_chunker] Sin OPENROUTER_API_KEY: usando el TOC embebido del PDF.")
 
-    doc = fitz.open(pdf_path)
-    metadata, chapters_index = extract_metadata_and_toc(doc, api_key, args.model)
-    print(f"[01_semantic_chunker] Fase 0: {len(chapters_index)} capitulos detectados.")
+    with fitz.open(pdf_path) as doc:
+        metadata, chapters_index = extract_metadata_and_toc(doc, api_key, args.model)
+        print(f"[01_semantic_chunker] Fase 0: {len(chapters_index)} capitulos detectados.")
+        chunks = segment_by_index(doc, chapters_index, selected)
 
-    chunks = segment_by_index(doc, chapters_index, selected)
-    doc.close()
+    title_slug = re.sub(r"[^a-z0-9]+", "-", metadata.get("title", "book").lower()).strip("-")[:48] or "libro-compilado"
+    default_theme = {
+        "themeName": "Compiled Slate",
+        "mode": "dark",
+        "colors": {
+            "bgCanvas": "#0F1419",
+            "bgSurface": "#182026",
+            "bgElevated": "#222D36",
+            "borderSubtle": "#2E3C48",
+            "textPrimary": "#F1F5F9",
+            "textMuted": "#94A3B8",
+            "accentPrimary": "#38BDF8",
+            "accentSecondary": "#F59E0B",
+            "accentSuccess": "#10B981",
+            "accentDanger": "#F43F5E",
+        },
+        "typography": {"editorialFont": "sans", "codeFont": "JetBrains Mono"},
+    }
+    clean_meta = {
+        "title": metadata.get("title", pdf_path.stem),
+        "subtitle": metadata.get("subtitle", ""),
+        "authors": metadata.get("authors") or ["Autor Desconocido"],
+        "edition": metadata.get("edition", "1st Edition"),
+        "difficulty": metadata.get("difficulty", "BEGINNER"),
+        "coverAccentIcon": metadata.get("coverAccentIcon", "📘"),
+    }
+    raw_theme = metadata.get("themeDNA")
+    theme_dna = raw_theme if isinstance(raw_theme, dict) and "colors" in raw_theme else default_theme
+    runtime_reqs = {
+        "pythonVersion": "3.14",
+        "packages": [],
+        "enableLiveMemoryTracer": True,
+        "virtualFileSystemSeed": {},
+    }
 
-    Path(args.out).write_text(
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(
         json.dumps([asdict(chunk) for chunk in chunks], ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    Path(args.meta_out).write_text(
-        json.dumps({"metadata": metadata, "chaptersIndex": chapters_index}, ensure_ascii=False, indent=2),
+    meta_out_path = Path(args.meta_out)
+    meta_out_path.parent.mkdir(parents=True, exist_ok=True)
+    meta_out_path.write_text(
+        json.dumps(
+            {
+                "bookId": title_slug,
+                "metadata": clean_meta,
+                "themeDNA": theme_dna,
+                "runtimeRequirements": runtime_reqs,
+                "chaptersIndex": chapters_index,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
         encoding="utf-8",
     )
     print(f"[01_semantic_chunker] {len(chunks)} micro-secciones escritas en {args.out}")

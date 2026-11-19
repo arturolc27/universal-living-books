@@ -250,6 +250,44 @@ export const BugAutopsyBlockSchema = z.object({
   linkedFlashcardId: z.string().optional(),
 });
 
+export const SyntaxClozeBlockSchema = z.object({
+  ...BaseBlockFields,
+  type: z.literal('SYNTAX_CLOZE'),
+  title: z.string().min(1),
+  prompt: z.string().min(1),
+  codeTemplate: z.string().min(1),
+  blanks: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        options: z.array(z.string()).min(2),
+        correctOption: z.string().min(1),
+        hint: z.string().optional(),
+      })
+    )
+    .min(1),
+  explanation: z.string().min(1),
+  linkedFlashcardId: z.string().optional(),
+});
+
+export const QuickQuizBlockSchema = z.object({
+  ...BaseBlockFields,
+  type: z.literal('QUICK_QUIZ'),
+  title: z.string().min(1),
+  questions: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        question: z.string().min(1),
+        options: z.array(z.string()).min(2),
+        correctIndex: z.number().int().nonnegative(),
+        explanation: z.string().min(1),
+      })
+    )
+    .min(1),
+  passingScorePct: z.number().int().min(1).max(100).optional(),
+});
+
 export const FlashcardBlockSchema = z.object({
   ...BaseBlockFields,
   type: z.literal('FLASHCARD'),
@@ -279,6 +317,8 @@ export const LessonBlockSchema = z.discriminatedUnion('type', [
   ParsonsProblemBlockSchema,
   OutputPredictionBlockSchema,
   BugAutopsyBlockSchema,
+  SyntaxClozeBlockSchema,
+  QuickQuizBlockSchema,
   FlashcardBlockSchema,
   YouTubeRefBlockSchema,
 ]);
@@ -288,6 +328,8 @@ export const MicroLessonSchema = z.object({
   order: z.number().int().nonnegative(),
   title: z.string().min(1),
   estimatedMinutes: z.number().positive(),
+  learningObjectives: z.array(z.string()).optional(),
+  takeaways: z.array(z.string()).optional(),
   blocks: z.array(LessonBlockSchema).min(1),
 });
 

@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { livingBooksDb } from '../../db/dexieDb';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -31,7 +32,6 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   private handleReset = async (): Promise<void> => {
     try {
-      const { livingBooksDb } = await import('../../db/dexieDb');
       await livingBooksDb.delete();
     } catch (err) {
       // eslint-disable-next-line no-console

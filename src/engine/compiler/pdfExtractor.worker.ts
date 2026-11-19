@@ -31,6 +31,7 @@ interface PdfPage {
     viewport: PdfViewport;
     canvas?: OffscreenCanvas;
   }) => PdfRenderTask;
+  cleanup?: () => void;
 }
 
 interface PdfDocument {
@@ -98,16 +99,20 @@ async function renderCover(doc: PdfDocument): Promise<string | null> {
   try {
     if (typeof OffscreenCanvas === 'undefined') return null;
     const page = await doc.getPage(1);
-    const base = page.getViewport({ scale: 1 });
-    const scale = COVER_TARGET_WIDTH / base.width;
-    const viewport = page.getViewport({ scale });
-    const canvas = new OffscreenCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-    await page.render({ canvasContext: ctx, viewport, canvas }).promise;
-    const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.72 });
-    const buffer = await blob.arrayBuffer();
-    return `data:image/jpeg;base64,${arrayBufferToBase64(buffer)}`;
+    try {
+      const base = page.getViewport({ scale: 1 });
+      const scale = COVER_TARGET_WIDTH / base.width;
+      const viewport = page.getViewport({ scale });
+      const canvas = new OffscreenCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+      await page.render({ canvasContext: ctx, viewport, canvas }).promise;
+      const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.72 });
+      const buffer = await blob.arrayBuffer();
+      return `data:image/jpeg;base64,${arrayBufferToBase64(buffer)}`;
+    } finally {
+      page.cleanup?.();
+    }
   } catch (err) {
     self.postMessage({
       requestId: '',
@@ -125,13 +130,18 @@ self.onmessage = async (event: MessageEvent<ExtractRequest>) => {
     pdfjs.GlobalWorkerOptions.workerSrc = `${PDFJS_BASE}/pdf.worker.min.mjs`;
 
     const doc = await pdfjs.getDocument({ data: buffer }).promise;
-    let text = '';
+    const pageChunks: string[] = [];
     for (let i = 1; i <= doc.numPages; i += 1) {
       const page = await doc.getPage(i);
-      const content = await page.getTextContent();
-      text += reconstructPageText(content.items) + '\n\n';
+      try {
+        const content = await page.getTextContent();
+        pageChunks.push(`--- page ${i} ---\n${reconstructPageText(content.items)}`);
+      } finally {
+        page.cleanup?.();
+      }
       self.postMessage({ requestId, type: 'progress', page: i, total: doc.numPages });
     }
+    const text = pageChunks.join('\n\n');
 
     const coverDataUrl = wantCover ? await renderCover(doc) : null;
     self.postMessage({ requestId, type: 'done', text, coverDataUrl });

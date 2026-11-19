@@ -1,5 +1,6 @@
 import type { ThemeDNA } from '../../types/cartridge.types';
 import type { BookMetadataDraft, ChapterIndexEntry } from '../../types/compiler.types';
+import type { BookSourceNativeMetadata } from './bookSourceAdapter';
 import { cleanText, extractCodeSnippets, type SectionChunk } from './semanticChunker';
 
 /**
@@ -69,6 +70,7 @@ export interface TocExtractionResult {
   metadata: BookMetadataDraft;
   chaptersIndex: ChapterIndexEntry[];
   rawLlmResponse: string;
+  isScannedLikely: boolean;
 }
 
 export interface TocExtractionOptions {
@@ -76,8 +78,12 @@ export interface TocExtractionOptions {
   maxFrontMatterChars?: number;
   /** Numero maximo de paginas del front-matter (si el texto trae marcadores). */
   maxFrontMatterPages?: number;
-  /** Miniatura de portada (data URL) extraida del PDF, si existe. */
+  /** Miniatura de portada (data URL) extraida del PDF/EPUB, si existe. */
   coverImageDataUrl?: string;
+  /** Metadatos nativos extraidos de EPUB/PDF para usar como respaldo prioritario. */
+  nativeMetadata?: BookSourceNativeMetadata;
+  /** Conteo real de paginas/capitulos extraido del archivo fuente. */
+  totalPages?: number;
   onLog?: (line: string) => void;
 }
 
@@ -165,9 +171,31 @@ export function coerceMetadata(
   };
 }
 
-export function coerceChaptersIndex(raw: unknown, totalChars: number): ChapterIndexEntry[] {
+export function countPageMarkers(rawText: string): number {
+  const matches = [...rawText.matchAll(PAGE_MARKER_PATTERN)];
+  PAGE_MARKER_PATTERN.lastIndex = 0;
+  if (matches.length === 0) return 0;
+  return Math.max(...matches.map((m) => Number(m[1]) || 0));
+}
+
+export function detectScannedPdfLikely(rawText: string, totalPages: number): boolean {
+  if (totalPages < 3) return false;
+  const cleanLength = rawText.replace(PAGE_MARKER_PATTERN, '').replace(/\s+/g, '').length;
+  PAGE_MARKER_PATTERN.lastIndex = 0;
+  const avgCharsPerPage = cleanLength / totalPages;
+  return avgCharsPerPage < 40;
+}
+
+export function coerceChaptersIndex(
+  raw: unknown,
+  totalChars: number,
+  totalPages = 0
+): ChapterIndexEntry[] {
   if (!Array.isArray(raw)) return [];
   const entries: ChapterIndexEntry[] = [];
+  const effectivePages = Math.max(1, totalPages || Math.round(totalChars / 2200) || 100);
+  const charsPerPage = Math.max(300, totalChars / effectivePages);
+
   for (const item of raw) {
     if (!item || typeof item !== 'object') continue;
     const rec = item as Record<string, unknown>;
@@ -176,7 +204,7 @@ export function coerceChaptersIndex(raw: unknown, totalChars: number): ChapterIn
     const startPage = Number.isFinite(Number(rec.startPage)) ? Number(rec.startPage) : 0;
     const endPage = Number.isFinite(Number(rec.endPage)) ? Number(rec.endPage) : startPage;
     const pageSpan = Math.max(1, endPage - startPage + 1);
-    const estimatedChars = Math.max(400, Math.round((totalChars / 393) * pageSpan));
+    const estimatedChars = Math.max(400, Math.round(charsPerPage * pageSpan));
     entries.push({
       chapterNumber,
       title: String(rec.title ?? `Capitulo ${chapterNumber}`),
@@ -343,27 +371,54 @@ export function deriveMetadataHeuristic(frontMatter: string, totalChars: number)
 export function deriveChaptersHeuristic(frontMatter: string, totalChars: number): ChapterIndexEntry[] {
   const entries: ChapterIndexEntry[] = [];
   const chapterPattern = /^(?:chapter|capitulo|capítulo)\s+(\d+)\b[.:\s]*(.*)$/i;
-  const numberedPattern = /^(\d{1,2})[.\s]+([A-Z][A-Za-z].{2,70})$/;
+  const numberedPattern = /^(\d{1,2})[.\s]+([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ\s,:;\-]{2,70})$/;
+  const markdownH1Pattern = /^#\s+(.{3,80})$/;
+
   for (const rawLine of frontMatter.split('\n')) {
     const line = rawLine.trim();
     const match = chapterPattern.exec(line) ?? numberedPattern.exec(line);
-    if (!match) continue;
-    const number = Number(match[1]);
-    if (!Number.isFinite(number) || number <= 0 || number > 60) continue;
-    if (entries.some((e) => e.chapterNumber === number)) continue;
-    entries.push({
-      chapterNumber: number,
-      title: (match[2] || `Capitulo ${number}`).trim(),
-      startPage: 0,
-      endPage: 0,
-      estimatedChars: Math.max(400, Math.round(totalChars / 17)),
-      estimatedMicroLessons: 6,
-      codeBlockCount: 0,
-      estimatedCostUsd: 0,
-      estimatedTimeSec: 0,
-      selectionState: false,
-      dbStatus: 'NOT_COMPILED',
-    });
+    if (match) {
+      const number = Number(match[1]);
+      if (!Number.isFinite(number) || number <= 0 || number > 60) continue;
+      if (entries.some((e) => e.chapterNumber === number)) continue;
+      entries.push({
+        chapterNumber: number,
+        title: (match[2] || `Capitulo ${number}`).trim(),
+        startPage: 0,
+        endPage: 0,
+        estimatedChars: Math.max(400, Math.round(totalChars / 15)),
+        estimatedMicroLessons: 6,
+        codeBlockCount: 0,
+        estimatedCostUsd: 0,
+        estimatedTimeSec: 0,
+        selectionState: false,
+        dbStatus: 'NOT_COMPILED',
+      });
+    }
+  }
+
+  // Fallback para libros Markdown/EPUB con encabezados `# Titulo` sin numeracion
+  if (entries.length === 0) {
+    let mdChapter = 1;
+    for (const rawLine of frontMatter.split('\n')) {
+      const mdMatch = markdownH1Pattern.exec(rawLine.trim());
+      if (!mdMatch) continue;
+      entries.push({
+        chapterNumber: mdChapter,
+        title: mdMatch[1].trim(),
+        startPage: 0,
+        endPage: 0,
+        estimatedChars: Math.max(400, Math.round(totalChars / 10)),
+        estimatedMicroLessons: 5,
+        codeBlockCount: 0,
+        estimatedCostUsd: 0,
+        estimatedTimeSec: 0,
+        selectionState: false,
+        dbStatus: 'NOT_COMPILED',
+      });
+      mdChapter += 1;
+      if (mdChapter > 40) break;
+    }
   }
 
   if (entries.length === 0) {
@@ -387,7 +442,8 @@ export function deriveChaptersHeuristic(frontMatter: string, totalChars: number)
 
 /**
  * Fase 0: extrae metadatos + Indice Maestro de Capitulos con una unica llamada
- * estructurada al LLM sobre el front-matter del libro.
+ * estructurada al LLM sobre el front-matter del libro, con respaldo de metadatos
+ * nativos (EPUB/PDF) y heuristicas locales.
  */
 export async function extractMetadataAndToc(
   rawText: string,
@@ -395,6 +451,15 @@ export async function extractMetadataAndToc(
   options: TocExtractionOptions = {}
 ): Promise<TocExtractionResult> {
   const totalChars = rawText.length;
+  const detectedPages = options.totalPages || countPageMarkers(rawText);
+  const isScannedLikely = detectScannedPdfLikely(rawText, detectedPages);
+
+  if (isScannedLikely) {
+    options.onLog?.(
+      `⚠️ Alerta: baja densidad de texto (${Math.round(totalChars / Math.max(1, detectedPages))} chars/pag en ${detectedPages} pags). Posible PDF escaneado.`
+    );
+  }
+
   const frontMatter = extractFrontMatter(
     rawText,
     options.maxFrontMatterChars ?? 18000,
@@ -430,7 +495,21 @@ export async function extractMetadataAndToc(
     ? coerceMetadata(root, totalChars, options.coverImageDataUrl)
     : deriveMetadataHeuristic(frontMatter, totalChars);
 
-  // Si el LLM no aporto titulo/autores, los completa con la heuristica local.
+  // Respaldo prioritario con metadatos nativos del archivo (EPUB OPF / PDF Info)
+  if (options.nativeMetadata) {
+    if ((!metadata.title || metadata.title === 'Libro sin titulo') && options.nativeMetadata.title) {
+      metadata.title = options.nativeMetadata.title;
+    }
+    if (
+      (metadata.authors.length === 0 || metadata.authors[0] === 'Autor Desconocido') &&
+      options.nativeMetadata.authors &&
+      options.nativeMetadata.authors.length > 0
+    ) {
+      metadata.authors = options.nativeMetadata.authors;
+    }
+  }
+
+  // Si aun faltan titulo/autores, los completa con la heuristica local.
   if (!metadata.title || metadata.title === 'Libro sin titulo' || metadata.authors[0] === 'Autor Desconocido') {
     const heuristic = deriveMetadataHeuristic(frontMatter, totalChars);
     if (!metadata.title || metadata.title === 'Libro sin titulo') metadata.title = heuristic.title;
@@ -438,16 +517,23 @@ export async function extractMetadataAndToc(
       metadata.authors = heuristic.authors;
     }
   }
+
+  if (detectedPages > 0 && (!metadata.totalPages || metadata.totalPages <= 0)) {
+    metadata.totalPages = detectedPages;
+  }
   if (options.coverImageDataUrl) metadata.coverImageDataUrl = options.coverImageDataUrl;
 
-  let chaptersIndex = root ? coerceChaptersIndex(root.chaptersIndex, totalChars) : [];
+  const effectiveTotalPages = metadata.totalPages || detectedPages;
+  let chaptersIndex = root ? coerceChaptersIndex(root.chaptersIndex, totalChars, effectiveTotalPages) : [];
   if (chaptersIndex.length === 0) {
-    chaptersIndex = deriveChaptersHeuristic(frontMatter, totalChars);
+    // Si el archivo es Markdown sin front-matter de TOC, escanear encabezados sobre mas texto
+    const scanSample = rawText.length > frontMatter.length ? rawText.slice(0, 120_000) : frontMatter;
+    chaptersIndex = deriveChaptersHeuristic(scanSample, totalChars);
     options.onLog?.(`Fase 0: indice no detectado por el LLM; heuristica genero ${chaptersIndex.length} capitulos.`);
   }
   options.onLog?.(`Fase 0: ${chaptersIndex.length} capitulos detectados en el indice.`);
 
-  return { metadata, chaptersIndex, rawLlmResponse: raw };
+  return { metadata, chaptersIndex, rawLlmResponse: raw, isScannedLikely };
 }
 
 // --- SEGMENTADOR ROBUSTO BASADO EN EL INDICE DETECTADO ---
@@ -465,22 +551,30 @@ function normalizeForMatch(value: string): string {
     .trim();
 }
 
-/** Localiza la posicion (offset) del titulo de un capitulo dentro del texto. */
+/** Localiza la posicion (offset) del titulo o pagina inicial de un capitulo dentro del texto. */
 function findChapterAnchor(text: string, chapter: ChapterIndexEntry): number {
   const normalizedTitle = normalizeForMatch(chapter.title);
-  if (!normalizedTitle) return -1;
-
-  const haystack = normalizeForMatch(text);
-  const direct = haystack.indexOf(normalizedTitle);
-  if (direct >= 0) {
-    // Mapear el offset normalizado de vuelta al texto original de forma aproximada.
-    return approximateOriginalOffset(text, normalizedTitle);
+  if (normalizedTitle) {
+    const haystack = normalizeForMatch(text);
+    const direct = haystack.indexOf(normalizedTitle);
+    if (direct >= 0) {
+      return approximateOriginalOffset(text, normalizedTitle);
+    }
   }
 
-  // Fallback: buscar "chapter N" / "capitulo N".
+  // Fallback 1: buscar "chapter N" / "capitulo N".
   const chapterPattern = new RegExp(`(?:chapter|capitulo|capítulo)\\s+${chapter.chapterNumber}\\b`, 'i');
   const match = chapterPattern.exec(text);
-  return match ? match.index : -1;
+  if (match) return match.index;
+
+  // Fallback 2: marcador de pagina real `--- page N ---` cuando startPage > 0
+  if (chapter.startPage > 0) {
+    const pageMarker = new RegExp(`(?:^|\\n)\\s*-{2,}\\s*page\\s+${chapter.startPage}\\s*-{2,}`, 'i');
+    const pageMatch = pageMarker.exec(text);
+    if (pageMatch) return pageMatch.index;
+  }
+
+  return -1;
 }
 
 function approximateOriginalOffset(text: string, normalizedTitle: string): number {

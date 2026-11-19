@@ -8,6 +8,8 @@ import { DesktopStudioShell } from './ui/studio/DesktopStudioShell';
 import { MobileCompanionShell } from './ui/mobile/MobileCompanionShell';
 import { ToastStack } from './ui/gamification/GamificationHud';
 import { loadBundledCartridges } from './data/bundledCartridges';
+import { livingBooksDb } from './db/dexieDb';
+import { AccessGate } from './ui/security/AccessGate';
 
 export default function App() {
   const hydrateFromDb = usePlatformStore((s) => s.hydrateFromDb);
@@ -53,7 +55,6 @@ export default function App() {
 
   const handleRepair = async () => {
     try {
-      const { livingBooksDb } = await import('./db/dexieDb');
       await livingBooksDb.delete();
     } catch (err) {
       // eslint-disable-next-line no-console
@@ -105,7 +106,7 @@ export default function App() {
   }
 
   return (
-    <>
+    <AccessGate>
       <ThemeInjector theme={cartridge?.themeDNA ?? null} />
 
       <AppShell>
@@ -142,6 +143,6 @@ export default function App() {
       )}
 
       <ToastStack />
-    </>
+    </AccessGate>
   );
 }

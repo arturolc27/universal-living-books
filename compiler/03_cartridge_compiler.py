@@ -265,10 +265,17 @@ async def main_async(args: argparse.Namespace) -> None:
             save_checkpoint(checkpoint_path, checkpoint)
 
     chapters: dict[int, dict] = {}
+    glossary: dict[str, dict] = dict(meta.get("glossary", {}))
     for chunk in chunks:
         entry = checkpoint.get(chunk["section_id"])
         if not entry or entry.get("status") != "COMPLETED" or not entry.get("lesson"):
             continue
+        lesson = entry["lesson"]
+        extracted = lesson.pop("extractedGlossary", None) if isinstance(lesson, dict) else None
+        if isinstance(extracted, dict):
+            for k, v in extracted.items():
+                if k not in glossary and isinstance(v, dict):
+                    glossary[k] = v
         chapter = chapters.setdefault(
             chunk["chapter_number"],
             {
@@ -279,20 +286,22 @@ async def main_async(args: argparse.Namespace) -> None:
                 "microLessons": [],
             },
         )
-        chapter["microLessons"].append(entry["lesson"])
+        chapter["microLessons"].append(lesson)
 
     cartridge = {
         "schemaVersion": "2.0",
-        "bookId": meta["bookId"],
+        "bookId": meta.get("bookId", "libro-compilado"),
         "metadata": meta["metadata"],
         "themeDNA": meta["themeDNA"],
         "runtimeRequirements": meta["runtimeRequirements"],
-        "glossary": meta.get("glossary", {}),
+        "glossary": glossary,
         "achievements": meta.get("achievements", []),
         "chapters": [chapters[k] for k in sorted(chapters)],
     }
 
-    Path(args.out).write_text(json.dumps(cartridge, ensure_ascii=False, indent=2), encoding="utf-8")
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(cartridge, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n[03_cartridge_compiler] Cartucho escrito en {args.out}")
     print(f"Costo total real: ${table.total_cost:.4f}  |  Tiempo total: {table.total_time:.1f}s")
 

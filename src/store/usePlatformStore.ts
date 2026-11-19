@@ -22,6 +22,7 @@ import {
   injectPcLabFailure,
   type Sm2Grade,
 } from '../engine/srs/sm2Scheduler';
+import { sanitizeVirtualFileSystemSeed } from '../ui/utils/sanitize';
 
 export type ViewMode = 'DESKTOP_STUDIO' | 'MOBILE_COMPANION';
 export type StudioTab = 'MEMORY' | 'DATA' | 'GPU';
@@ -32,6 +33,16 @@ export interface ToastMessage {
   title: string;
   description: string;
   iconKey: string;
+}
+
+export interface PcLabQueueItem {
+  bookId: string;
+  chapterId: string;
+  lessonId: string;
+  blockId: string;
+  title: string;
+  blockType: 'CODE_LAB' | 'AST_CHALLENGE';
+  queuedAt: number;
 }
 
 interface PlatformSettings {
@@ -58,6 +69,7 @@ interface PlatformState {
   activeGlossaryTerm: GlossaryEntry | null;
   lessonProgressMap: Record<string, LessonProgressRecord>;
   srsStates: Record<string, SrsCardStateRecord>;
+  pcLabQueue: PcLabQueueItem[];
   userStats: UserStatsRecord;
   unlockedAchievementIds: string[];
   toasts: ToastMessage[];
@@ -83,6 +95,9 @@ interface PlatformState {
   setMobileTab: (tab: MobileTab) => void;
   setActiveGlossaryTerm: (entry: GlossaryEntry | null) => void;
   advanceUnlockedBlock: (nextIndex: number) => Promise<void>;
+  enqueuePcLab: (item: Omit<PcLabQueueItem, 'queuedAt'>) => void;
+  resolvePcLab: (bookId: string, lessonId: string, blockId: string) => void;
+  replacePcLabQueue: (items: PcLabQueueItem[]) => void;
   updateVirtualFile: (fileName: string, content: string) => Promise<void>;
   createVirtualFile: (fileName: string, content?: string) => Promise<void>;
   deleteVirtualFile: (fileName: string) => Promise<void>;
@@ -142,6 +157,26 @@ function persistSettings(settings: PlatformSettings): void {
   localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
 }
 
+function loadPcLabQueue(): PcLabQueueItem[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem('ulb_pc_lab_queue');
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistPcLabQueue(queue: PcLabQueueItem[]) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem('ulb_pc_lab_queue', JSON.stringify(queue));
+  } catch {
+    // ignore storage quota errors
+  }
+}
+
 export const usePlatformStore = create<PlatformState>((set, get) => ({
   cartridges: {},
   activeBookId: null,
@@ -155,6 +190,7 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
   activeGlossaryTerm: null,
   lessonProgressMap: {},
   srsStates: {},
+  pcLabQueue: loadPcLabQueue(),
   userStats: DEFAULT_STATS,
   unlockedAchievementIds: [],
   toasts: [],
@@ -173,6 +209,30 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
     const next = { ...get().settings, ...partial };
     persistSettings(next);
     set({ settings: next });
+  },
+  enqueuePcLab: (item) => {
+    const current = get().pcLabQueue;
+    if (
+      current.some(
+        (q) => q.bookId === item.bookId && q.lessonId === item.lessonId && q.blockId === item.blockId
+      )
+    ) {
+      return;
+    }
+    const next: PcLabQueueItem[] = [...current, { ...item, queuedAt: Date.now() }];
+    persistPcLabQueue(next);
+    set({ pcLabQueue: next });
+  },
+  resolvePcLab: (bookId, lessonId, blockId) => {
+    const next = get().pcLabQueue.filter(
+      (q) => !(q.bookId === bookId && q.lessonId === lessonId && q.blockId === blockId)
+    );
+    persistPcLabQueue(next);
+    set({ pcLabQueue: next });
+  },
+  replacePcLabQueue: (items) => {
+    persistPcLabQueue(items);
+    set({ pcLabQueue: items });
   },
 
   hydrateFromDb: async () => {
@@ -240,7 +300,7 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
     const firstLesson = firstChapter?.microLessons[0];
 
     const vfsRecord = await livingBooksDb.virtualFileSystems.get(bookId);
-    const virtualFiles = vfsRecord?.files ?? { ...cartridge.runtimeRequirements.virtualFileSystemSeed };
+    const virtualFiles = vfsRecord?.files ?? sanitizeVirtualFileSystemSeed(cartridge.runtimeRequirements.virtualFileSystemSeed);
 
     if (!vfsRecord) {
       await livingBooksDb.virtualFileSystems.put({
@@ -295,26 +355,34 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
   setActiveGlossaryTerm: (entry) => set({ activeGlossaryTerm: entry }),
 
   advanceUnlockedBlock: async (nextIndex) => {
-    const { activeBookId, activeLessonId, unlockedBlockIndex } = get();
+    const { activeBookId, activeLessonId, unlockedBlockIndex, cartridges } = get();
     if (!activeBookId || !activeLessonId) return;
     if (nextIndex <= unlockedBlockIndex) return;
 
-    const record: LessonProgressRecord = {
+    const cartridge = cartridges[activeBookId];
+    const lesson = cartridge?.chapters
+      .flatMap((c) => c.microLessons)
+      .find((l) => l.lessonId === activeLessonId);
+    const totalBlocks = lesson?.blocks.length ?? 0;
+    const reachedEnd = totalBlocks > 0 && nextIndex >= totalBlocks - 1;
+
+    const existing = await livingBooksDb.lessonProgress.get([activeBookId, activeLessonId]);
+    const hadMistakes = existing?.hadMistakes ?? false;
+    const isCompleted = (existing?.isCompleted ?? false) || reachedEnd;
+    const masteryTier: MasteryTier = isCompleted
+      ? hadMistakes
+        ? 'SILVER'
+        : 'GOLD'
+      : existing?.masteryTier ?? 'IN_PROGRESS';
+
+    const merged: LessonProgressRecord = {
       bookId: activeBookId,
       lessonId: activeLessonId,
       unlockedBlockIndex: nextIndex,
-      isCompleted: false,
-      masteryTier: 'IN_PROGRESS',
-      hadMistakes: false,
+      isCompleted,
+      masteryTier,
+      hadMistakes,
       updatedAt: Date.now(),
-    };
-
-    const existing = await livingBooksDb.lessonProgress.get([activeBookId, activeLessonId]);
-    const merged: LessonProgressRecord = {
-      ...record,
-      isCompleted: existing?.isCompleted ?? false,
-      masteryTier: existing?.masteryTier ?? 'IN_PROGRESS',
-      hadMistakes: existing?.hadMistakes ?? false,
     };
 
     await livingBooksDb.lessonProgress.put(merged);
@@ -325,6 +393,9 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
         [progressKey(activeBookId, activeLessonId)]: merged,
       },
     }));
+    if (isCompleted) {
+      await get().checkAchievements();
+    }
   },
 
   updateVirtualFile: async (fileName, content) => {

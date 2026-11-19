@@ -1,3 +1,5 @@
+export type DeviceMode = 'PC' | 'MOBILE';
+
 export type BlockType =
   | 'PROSE'
   | 'GPU_ANIMATION'
@@ -7,6 +9,8 @@ export type BlockType =
   | 'PARSONS_PROBLEM'
   | 'OUTPUT_PREDICTION'
   | 'BUG_AUTOPSY'
+  | 'SYNTAX_CLOZE'
+  | 'QUICK_QUIZ'
   | 'FLASHCARD'
   | 'YOUTUBE_REF';
 
@@ -247,6 +251,39 @@ export interface BugAutopsyBlock extends BaseBlock {
   linkedFlashcardId?: string;
 }
 
+export interface SyntaxClozeBlank {
+  id: string;
+  options: string[];
+  correctOption: string;
+  hint?: string;
+}
+
+export interface SyntaxClozeBlock extends BaseBlock {
+  type: 'SYNTAX_CLOZE';
+  title: string;
+  prompt: string;
+  /** Codigo con marcadores ___0___, ___1___ o ___ para cada hueco. */
+  codeTemplate: string;
+  blanks: SyntaxClozeBlank[];
+  explanation: string;
+  linkedFlashcardId?: string;
+}
+
+export interface QuickQuizQuestion {
+  id: string;
+  question: string;
+  options: string[];
+  correctIndex: number;
+  explanation: string;
+}
+
+export interface QuickQuizBlock extends BaseBlock {
+  type: 'QUICK_QUIZ';
+  title: string;
+  questions: QuickQuizQuestion[];
+  passingScorePct?: number;
+}
+
 export interface FlashcardBlock extends BaseBlock {
   type: 'FLASHCARD';
   cardId: string;
@@ -274,6 +311,8 @@ export type LessonBlock =
   | ParsonsProblemBlock
   | OutputPredictionBlock
   | BugAutopsyBlock
+  | SyntaxClozeBlock
+  | QuickQuizBlock
   | FlashcardBlock
   | YouTubeRefBlock;
 
@@ -282,6 +321,8 @@ export interface MicroLesson {
   order: number;
   title: string;
   estimatedMinutes: number;
+  learningObjectives?: string[];
+  takeaways?: string[];
   blocks: LessonBlock[];
 }
 

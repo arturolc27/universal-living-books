@@ -189,8 +189,9 @@ def trace_one(payload: dict) -> dict:
     """Ejecutado en un worker del pool. Aplica filtro AST + trazado."""
     section_id = payload["sectionId"]
     snippet_index = payload["snippetIndex"]
+    max_steps = int(payload.get("maxSteps", MAX_STEPS))
     code = normalize_snippet(payload["code"])
-    digest = snippet_hash(code, MAX_STEPS)
+    digest = snippet_hash(code, max_steps)
 
     safe, kind, reason = analyze_snippet_static(code)
     if not safe:
@@ -206,7 +207,7 @@ def trace_one(payload: dict) -> dict:
         }
 
     try:
-        steps = trace_snippet(code, MAX_STEPS)
+        steps = trace_snippet(code, max_steps)
     except Exception as exc:  # noqa: BLE001
         return {
             "sectionId": section_id,
@@ -265,6 +266,7 @@ def main() -> None:
                 "sectionId": chunk["section_id"],
                 "snippetIndex": idx,
                 "code": snippet,
+                "maxSteps": args.max_steps,
             })
 
     checkpoint_path = Path(args.checkpoint)
