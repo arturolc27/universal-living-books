@@ -36,6 +36,14 @@ jobs:
 
             docker compose up -d --build --remove-orphans
 
+            # Conectar automaticamente a la red de iris-caddy (sin afectar otros contenedores)
+            if docker ps --format '{{.Names}}' | grep -qx 'iris-caddy'; then
+              NET=$(docker inspect iris-caddy --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' | awk '{print $1}')
+              if [ -n "$NET" ]; then
+                docker network connect "$NET" universal-living-books 2>/dev/null || true
+              fi
+            fi
+
             echo "Waiting for container healthcheck on 127.0.0.1:8085..."
             for i in $(seq 1 15); do
               if wget -q -O /dev/null http://127.0.0.1:8085/; then
