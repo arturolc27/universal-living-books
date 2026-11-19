@@ -1,0 +1,53 @@
+name: Deploy Universal Living Books to VPS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy container via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -e
+            APP_DIR="/opt/apps/universal-living-books"
+            REPO_URL="https://github.com/${{ github.repository }}.git"
+
+            mkdir -p /opt/apps
+            if [ ! -d "$APP_DIR/.git" ]; then
+              git clone "$REPO_URL" "$APP_DIR"
+            fi
+
+            cd "$APP_DIR"
+            git fetch origin main
+            git reset --hard origin/main
+
+            export VITE_APP_ACCESS_PIN_SHA256="${{ secrets.VITE_APP_ACCESS_PIN_SHA256 }}"
+            export APP_PORT="8085"
+
+            docker compose up -d --build --remove-orphans
+
+            echo "Waiting for container healthcheck on 127.0.0.1:8085..."
+            for i in $(seq 1 15); do
+              if wget -q -O /dev/null http://127.0.0.1:8085/; then
+                echo "Container is healthy on 127.0.0.1:8085"
+                break
+              fi
+              if [ "$i" -eq 15 ]; then
+                echo "Healthcheck failed"
+                docker compose logs --tail=50
+                exit 1
+              fi
+              sleep 2
+            done
+
+            docker image prune -f
