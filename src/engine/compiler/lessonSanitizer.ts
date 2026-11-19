@@ -68,9 +68,42 @@ export function sanitizeBlock(raw: unknown, index: number): LessonBlock | null {
   }
 
   if (type === 'OUTPUT_PREDICTION' || type === 'BUG_AUTOPSY') {
-    if (Array.isArray(block.options)) {
-      base.options = block.options.map((opt) => coerceString(opt));
+    base.options = Array.isArray(block.options)
+      ? block.options.map((opt) => coerceString(opt))
+      : ['Error / Ninguno', 'Salida valida'];
+    base.prompt = coerceString(block.prompt) || 'Analiza el siguiente fragmento:';
+    base.codeSnippet = coerceString(block.codeSnippet) || '# codigo';
+    base.explanation = coerceString(block.explanation);
+    if (type === 'BUG_AUTOPSY') {
+      base.title = coerceString(block.title) || 'Autopsia de Bug';
+      base.tracebackText = coerceString(block.tracebackText);
+      base.culpritLineNumber = Number.isFinite(Number(block.culpritLineNumber))
+        ? Math.max(1, Number(block.culpritLineNumber))
+        : 1;
+    } else {
+      base.expectedReturnType = coerceString(block.expectedReturnType) || 'str';
     }
+    base.correctOptionIndex = Number.isFinite(Number(block.correctOptionIndex))
+      ? Math.max(0, Number(block.correctOptionIndex))
+      : 0;
+  }
+
+  if (type === 'PARSONS_PROBLEM') {
+    base.prompt = coerceString(block.prompt) || 'Ordena las lineas:';
+    base.blocks = Array.isArray(block.blocks) ? block.blocks : [];
+  }
+
+  if (type === 'CODE_LAB' || type === 'AST_CHALLENGE') {
+    base.title = coerceString(block.title) || 'Laboratorio';
+    base.instructions = coerceString(block.instructions) || 'Completa el ejercicio.';
+    base.starterCode = typeof block.starterCode === 'string' ? block.starterCode : '';
+    base.unitTestCode = typeof block.unitTestCode === 'string' ? block.unitTestCode : '';
+  }
+
+  if (type === 'INTERACTIVE_VISUALIZER') {
+    base.title = coerceString(block.title) || 'Visualizador';
+    base.codeContext = typeof block.codeContext === 'string' ? block.codeContext : '';
+    base.payload = block.payload && typeof block.payload === 'object' ? block.payload : {};
   }
 
   return base as unknown as LessonBlock;

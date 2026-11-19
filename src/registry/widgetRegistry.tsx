@@ -1,5 +1,62 @@
-import { Suspense, lazy, type ComponentType, type ReactNode } from 'react';
+import { Component, Suspense, lazy, type ComponentType, type ErrorInfo, type ReactNode } from 'react';
 import type { DeviceMode, LessonBlock } from '../types/cartridge.types';
+
+class WidgetErrorBoundary extends Component<
+  { blockId: string; onSkip?: () => void; children: ReactNode },
+  { error: Error | null }
+> {
+  constructor(props: { blockId: string; onSkip?: () => void; children: ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    // eslint-disable-next-line no-console
+    console.error('[WidgetErrorBoundary]', this.props.blockId, error, info.componentStack);
+  }
+
+  componentDidUpdate(prevProps: { blockId: string }) {
+    if (prevProps.blockId !== this.props.blockId && this.state.error) {
+      this.setState({ error: null });
+    }
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+          <p className="text-xs font-semibold text-secondary">
+            Este bloque interactivo tuvo un problema de formato
+          </p>
+          <p className="max-w-sm text-[11px] text-muted">{this.state.error.message}</p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => this.setState({ error: null })}
+              className="rounded-lg border border-subtle px-3 py-1.5 text-xs text-primary hover:border-accent/50"
+            >
+              Reintentar
+            </button>
+            {this.props.onSkip && (
+              <button
+                type="button"
+                onClick={this.props.onSkip}
+                className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-canvas"
+              >
+                Saltar bloque y continuar
+              </button>
+            )}
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function lazyWithRetry<T extends ComponentType<any>>(
   factory: () => Promise<{ default: T }>
@@ -160,7 +217,11 @@ export function renderBlockWidget(block: LessonBlock, options?: WidgetRenderOpti
   }
 
   if (!content) return null;
-  return <Suspense fallback={<WidgetLoaderFallback />}>{content}</Suspense>;
+  return (
+    <WidgetErrorBoundary key={block.blockId} blockId={block.blockId} onSkip={options?.onResolved}>
+      <Suspense fallback={<WidgetLoaderFallback />}>{content}</Suspense>
+    </WidgetErrorBoundary>
+  );
 }
 
 export function isInteractiveBlock(block: LessonBlock): boolean {

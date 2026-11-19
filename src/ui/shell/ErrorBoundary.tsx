@@ -30,14 +30,14 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     this.setState({ info: info.componentStack ?? '' });
   }
 
-  private handleReset = async (): Promise<void> => {
+  private handleResetProgressOnly = async (): Promise<void> => {
     try {
-      await livingBooksDb.delete();
+      await livingBooksDb.lessonProgress.clear();
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.error('No se pudo borrar la base de datos:', err);
+      console.error('No se pudo reiniciar el progreso:', err);
     }
-    window.location.reload();
+    window.location.href = '/';
   };
 
   render(): ReactNode {
@@ -51,20 +51,22 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           <pre className="code-font max-h-40 overflow-auto rounded-lg bg-canvas p-2 text-left text-[10px] text-muted">
             {this.state.info || this.state.error.stack}
           </pre>
-          <div className="mt-4 flex justify-center gap-2">
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
             <button
               type="button"
-              onClick={() => window.location.reload()}
-              className="rounded-lg border border-subtle px-3 py-1.5 text-xs text-primary hover:border-accent/50"
+              onClick={() => {
+                window.location.href = '/';
+              }}
+              className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-canvas"
             >
-              Recargar
+              Volver a la Biblioteca (conservar mis libros)
             </button>
             <button
               type="button"
-              onClick={this.handleReset}
-              className="rounded-lg bg-danger px-3 py-1.5 text-xs font-semibold text-canvas"
+              onClick={this.handleResetProgressOnly}
+              className="rounded-lg border border-subtle px-3 py-1.5 text-xs text-primary hover:border-danger/50"
             >
-              Reparar (borrar datos locales)
+              Reiniciar progreso de leccion (sin borrar libros)
             </button>
           </div>
         </div>
