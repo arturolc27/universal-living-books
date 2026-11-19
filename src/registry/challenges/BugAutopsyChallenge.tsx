@@ -4,6 +4,7 @@ import { Bug, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
 import type { BugAutopsyBlock } from '../../types/cartridge.types';
 import { usePlatformStore } from '../../store/usePlatformStore';
 import { cn } from '../../ui/utils/cn';
+import { toDisplayText } from '../../ui/utils/sanitize';
 
 export function BugAutopsyChallenge({
   block,
@@ -112,7 +113,7 @@ export function BugAutopsyChallenge({
                 revealed && selectedOption === idx && idx !== block.correctOptionIndex && 'border-danger bg-danger/10 text-danger'
               )}
             >
-              {option}
+              {toDisplayText(option)}
             </button>
           ))}
         </div>

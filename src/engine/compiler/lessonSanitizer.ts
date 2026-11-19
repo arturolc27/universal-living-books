@@ -18,11 +18,27 @@ const VALID_BLOCK_TYPES = new Set<string>([
   'PARSONS_PROBLEM',
   'OUTPUT_PREDICTION',
   'BUG_AUTOPSY',
+  'SYNTAX_CLOZE',
+  'QUICK_QUIZ',
   'FLASHCARD',
   'YOUTUBE_REF',
 ]);
 
 const VALID_CALLOUT_KINDS = new Set<string>(['TIP', 'WARNING', 'BOOK_NOTE', 'ERROR_TRAP']);
+
+function coerceString(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (value && typeof value === 'object') {
+    const rec = value as Record<string, unknown>;
+    if (typeof rec.text === 'string') return rec.text;
+    if (typeof rec.label === 'string') return rec.label;
+    if (typeof rec.value === 'string') return rec.value;
+    if (typeof rec.code === 'string') return rec.code;
+    return JSON.stringify(value);
+  }
+  return '';
+}
 
 export function sanitizeBlock(raw: unknown, index: number): LessonBlock | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -49,6 +65,12 @@ export function sanitizeBlock(raw: unknown, index: number): LessonBlock | null {
       delete base.callout;
     }
     base.markdown = markdown;
+  }
+
+  if (type === 'OUTPUT_PREDICTION' || type === 'BUG_AUTOPSY') {
+    if (Array.isArray(block.options)) {
+      base.options = block.options.map((opt) => coerceString(opt));
+    }
   }
 
   return base as unknown as LessonBlock;

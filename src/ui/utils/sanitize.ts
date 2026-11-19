@@ -91,3 +91,17 @@ export function sanitizeVirtualFileSystemSeed(
   }
   return clean;
 }
+
+export function toDisplayText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (value && typeof value === 'object') {
+    const rec = value as Record<string, unknown>;
+    if (typeof rec.text === 'string') return rec.text;
+    if (typeof rec.label === 'string') return rec.label;
+    if (typeof rec.value === 'string') return rec.value;
+    if (typeof rec.code === 'string') return rec.code;
+    return JSON.stringify(value);
+  }
+  return '';
+}
