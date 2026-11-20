@@ -1,8 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { RotateCw, Target, CheckCircle2, Clock } from 'lucide-react';
+import { RotateCw, Target, CheckCircle2, Clock, Zap } from 'lucide-react';
 import { usePlatformStore } from '../../store/usePlatformStore';
-import { buildPrioritizedReviewQueue, type Sm2Grade } from '../../engine/srs/sm2Scheduler';
+import {
+  buildPrioritizedReviewQueue,
+  gradeFromObjectiveOutcome,
+  type Sm2Grade,
+} from '../../engine/srs/sm2Scheduler';
+import { renderBlockWidget } from '../../registry/widgetRegistry';
+import type { LessonBlock } from '../../types/cartridge.types';
 import { cn } from '../utils/cn';
 
 const GRADE_BUTTONS: Array<{ grade: Sm2Grade; label: string; className: string }> = [
@@ -20,6 +26,19 @@ export function Sm2FlashcardArena() {
 
   const cartridge = activeBookId ? cartridges[activeBookId] : null;
 
+  const blockById = useMemo(() => {
+    const map: Record<string, LessonBlock> = {};
+    if (!cartridge) return map;
+    for (const ch of cartridge.chapters) {
+      for (const ml of ch.microLessons) {
+        for (const blk of ml.blocks) {
+          map[blk.blockId] = blk;
+        }
+      }
+    }
+    return map;
+  }, [cartridge]);
+
   const queue = useMemo(() => {
     if (!cartridge) return [];
     const statesByCardId: Record<string, (typeof srsStates)[string]> = {};
@@ -33,19 +52,31 @@ export function Sm2FlashcardArena() {
 
   const [index, setIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
+  const cardShownAtRef = useRef<number>(Date.now());
 
   useEffect(() => {
     setIndex(0);
     setFlipped(false);
+    cardShownAtRef.current = Date.now();
   }, [activeBookId]);
 
   const safeIndex = queue.length > 0 ? Math.min(index, queue.length - 1) : 0;
   const current = queue[safeIndex];
+  const linkedChallenge =
+    current?.card.sourceBlockId &&
+    blockById[current.card.sourceBlockId] &&
+    (blockById[current.card.sourceBlockId].type === 'OUTPUT_PREDICTION' ||
+      blockById[current.card.sourceBlockId].type === 'BUG_AUTOPSY' ||
+      blockById[current.card.sourceBlockId].type === 'SYNTAX_CLOZE')
+      ? blockById[current.card.sourceBlockId]
+      : null;
 
   const handleGrade = async (grade: Sm2Grade) => {
     if (!current) return;
-    await gradeFlashcard(current.card.cardId, grade);
+    const latencyMs = Math.max(0, Date.now() - cardShownAtRef.current);
+    await gradeFlashcard(current.card.cardId, grade, latencyMs);
     setFlipped(false);
+    cardShownAtRef.current = Date.now();
     setIndex((i) => (i + 1 < queue.length ? i + 1 : 0));
   };
 
@@ -59,8 +90,38 @@ export function Sm2FlashcardArena() {
 
   if (queue.length === 0 || !current) {
     return (
-      <div className="flex h-full items-center justify-center p-6 text-center text-xs text-muted">
-        Este libro no tiene tarjetas de repaso configuradas.
+      <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center text-xs text-muted">
+        <Clock size={22} className="text-accent opacity-80" />
+        <p className="font-semibold text-primary">Sin tarjetas pendientes por ahora</p>
+        <p className="max-w-xs text-[11px]">
+          Las tarjetas se enrolan automáticamente al completar una lección o cuando fallas un reto, evitando contaminar tu repaso con temas que aún no estudias.
+        </p>
+      </div>
+    );
+  }
+
+  if (linkedChallenge) {
+    return (
+      <div className="flex h-full flex-col bg-surface">
+        <div className="flex items-center justify-between border-b border-subtle px-3 py-2">
+          <div className="flex items-center gap-1.5">
+            <Zap size={13} className="text-accent" />
+            <h3 className="text-xs font-semibold text-primary">Repaso Activo Intercalado (SM-2)</h3>
+          </div>
+          <span className="rounded-full bg-elevated px-2 py-0.5 text-[10px] text-muted">
+            Cap {current.chapterNumber ?? '?'} · {safeIndex + 1}/{queue.length}
+          </span>
+        </div>
+        <div className="min-h-0 flex-1 overflow-hidden">
+          {renderBlockWidget(linkedChallenge, {
+            deviceMode: 'MOBILE',
+            onResolved: () => {
+              const latencyMs = Math.max(0, Date.now() - cardShownAtRef.current);
+              const objectiveGrade = gradeFromObjectiveOutcome(true, latencyMs, false);
+              void handleGrade(objectiveGrade);
+            },
+          })}
+        </div>
       </div>
     );
   }
@@ -68,9 +129,9 @@ export function Sm2FlashcardArena() {
   return (
     <div className="flex h-full flex-col bg-surface">
       <div className="flex items-center justify-between border-b border-subtle px-3 py-2">
-        <h3 className="text-sm font-semibold text-primary">Arena SM-2</h3>
+        <h3 className="text-sm font-semibold text-primary">Arena SM-2 (Intercalado)</h3>
         <span className="rounded-full bg-elevated px-2 py-0.5 text-[10px] text-muted">
-          {safeIndex + 1} / {queue.length}
+          Cap {current.chapterNumber ?? '?'} · {safeIndex + 1} / {queue.length}
         </span>
       </div>
 
@@ -85,7 +146,7 @@ export function Sm2FlashcardArena() {
             <div className="backface-hidden absolute inset-0 flex flex-col rounded-lg border border-subtle bg-elevated/50 p-4">
               {current.state.failedInPcLab && (
                 <span className="mb-2 flex w-fit items-center gap-1 rounded-full bg-danger/15 px-2 py-0.5 text-[10px] font-medium text-danger">
-                  <Target size={10} /> Refuerzo de tu sesion en PC
+                  <Target size={10} /> Refuerzo de tu sesión en PC
                 </span>
               )}
               <p className="flex-1 whitespace-pre-wrap text-sm text-primary">{current.card.frontMarkdown}</p>

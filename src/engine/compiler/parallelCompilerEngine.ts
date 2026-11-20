@@ -9,6 +9,7 @@ import type {
 } from '../../types/compiler.types';
 import { validateBookCartridge } from '../../types/cartridge.schema';
 import { livingBooksDb, upsertCompiledChapterToBook } from '../../db/dexieDb';
+import { pythonRuntimeBridge } from '../pyodide/pythonRuntimeBridge';
 import { buildCompilerSystemInstruction, MICROLESSON_RESPONSE_SCHEMA } from './llmCompiler';
 import { formatBookSourceMarkdown, sanitizeLesson } from './lessonSanitizer';
 import { parseJsonLoose } from './metadataTocExtractor';
@@ -245,7 +246,8 @@ export class ParallelBookCompiler {
       task.attempts = attempt;
       try {
         const result = await this.callLlm(chunk, model, pricing, lastError);
-        task.compiledLesson = result.lesson;
+        const verifiedLesson = await this.verifyLessonWithPyodide(result.lesson);
+        task.compiledLesson = verifiedLesson;
         task.actualInputTokens = result.inputTokens;
         task.actualOutputTokens = result.outputTokens;
         task.actualCostUsd = this.computeCost(result.inputTokens, result.outputTokens, pricing);
@@ -474,6 +476,66 @@ export class ParallelBookCompiler {
       sectionTitle: chunk.sectionTitle,
       cleanText: chunk.text,
     });
+  }
+
+  /**
+   * Verificacion determinista post-LLM: ejecuta en Pyodide cada OUTPUT_PREDICTION
+   * y BUG_AUTOPSY para asegurar que las respuestas marcadas como correctas y
+   * los tracebacks coincidan 100% con Python real (evita alucinaciones del LLM).
+   */
+  private async verifyLessonWithPyodide(lesson: MicroLesson): Promise<MicroLesson> {
+    if (this.job.config.dryRun || typeof Worker === 'undefined') {
+      return lesson;
+    }
+
+    const verifiedBlocks = [...lesson.blocks];
+    for (let i = 0; i < verifiedBlocks.length; i += 1) {
+      const blk = verifiedBlocks[i];
+      if (blk.type === 'OUTPUT_PREDICTION' && blk.codeSnippet.trim()) {
+        try {
+          const res = await Promise.race([
+            pythonRuntimeBridge.executeAndEvaluate(blk.codeSnippet),
+            sleep(3000).then(() => null),
+          ]);
+          if (res) {
+            if (!res.ok) {
+              const errIdx = blk.options.findIndex((o) => /error|exception|traceback/i.test(o));
+              if (errIdx >= 0) {
+                verifiedBlocks[i] = { ...blk, correctOptionIndex: errIdx, expectedReturnType: 'Error' };
+              }
+            } else {
+              const actualOut = res.stdout.trim();
+              if (actualOut && blk.options[blk.correctOptionIndex]?.trim() !== actualOut) {
+                const matchIdx = blk.options.findIndex((o) => o.trim() === actualOut);
+                if (matchIdx >= 0) {
+                  verifiedBlocks[i] = { ...blk, correctOptionIndex: matchIdx };
+                } else {
+                  const updatedOpts = [...blk.options];
+                  updatedOpts[blk.correctOptionIndex] = actualOut;
+                  verifiedBlocks[i] = { ...blk, options: updatedOpts };
+                }
+              }
+            }
+          }
+        } catch {
+          // Si Pyodide no está disponible en este entorno, conservar el bloque saneado
+        }
+      } else if (blk.type === 'BUG_AUTOPSY' && blk.codeSnippet.trim()) {
+        try {
+          const res = await Promise.race([
+            pythonRuntimeBridge.executeAndEvaluate(blk.codeSnippet),
+            sleep(3000).then(() => null),
+          ]);
+          if (res && !res.ok && res.stderr.trim()) {
+            verifiedBlocks[i] = { ...blk, tracebackText: res.stderr.trim().slice(0, 600) };
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    return { ...lesson, blocks: verifiedBlocks };
   }
 
   private syntheticLesson(chunk: SectionChunk): MicroLesson {

@@ -105,18 +105,24 @@ print("__AST_REPORT__" + json.dumps(_report))
 }
 
 /**
- * Builds a Python harness that executes the user's code and then runs the
- * provided unit test code (asserts / doctest), emitting a JSON report.
+ * Builds a Python harness that executes the user's code and then evaluates each
+ * visible and hidden assertion individually, extracting expected vs. actual values
+ * when an AssertionError occurs.
  */
-export function buildUnitTestHarness(userCode: string, unitTestCode: string): string {
-  const payload = { userCode, unitTestCode };
+export function buildUnitTestHarness(
+  userCode: string,
+  unitTestCode: string,
+  hiddenTestCode = ''
+): string {
+  const payload = { userCode, unitTestCode, hiddenTestCode };
 
   return `
-import json, io, contextlib, traceback
+import ast, json, io, contextlib, traceback
 
 _payload = json.loads(${JSON.stringify(JSON.stringify(payload))})
 _user_code = _payload["userCode"]
 _unit_test_code = _payload["unitTestCode"]
+_hidden_test_code = _payload.get("hiddenTestCode") or ""
 
 _report = {
     "passed": True,
@@ -129,6 +135,94 @@ _report = {
 _ns = {"__name__": "__main__"}
 _capture = io.StringIO()
 
+def _run_test_suite(code_str, is_hidden):
+    if not code_str.strip():
+        return
+    try:
+        _suite_tree = ast.parse(code_str)
+    except SyntaxError:
+        _report["total"] += 1
+        _report["passed"] = False
+        _report["items"].append({
+            "name": "Test oculto de transferencia" if is_hidden else "Suite de pruebas",
+            "passed": False,
+            "isHidden": is_hidden,
+            "message": traceback.format_exc(limit=2),
+        })
+        return
+
+    _stmts = _suite_tree.body
+    _idx = 0
+    for _stmt in _stmts:
+        if isinstance(_stmt, ast.Assert):
+            _idx += 1
+            _report["total"] += 1
+            _label = ("Transferencia #" if is_hidden else "Caso #") + str(_idx)
+            _expected_str = None
+            _actual_str = None
+            try:
+                _expr_src = ast.unparse(_stmt.test) if hasattr(ast, "unparse") else _label
+            except Exception:
+                _expr_src = _label
+
+            try:
+                if isinstance(_stmt.test, ast.Compare) and len(_stmt.test.ops) == 1 and isinstance(_stmt.test.ops[0], ast.Eq):
+                    _lhs_val = eval(compile(ast.Expression(_stmt.test.left), "<lhs>", "eval"), _ns)
+                    _rhs_val = eval(compile(ast.Expression(_stmt.test.comparators[0]), "<rhs>", "eval"), _ns)
+                    _actual_str = repr(_lhs_val)
+                    _expected_str = repr(_rhs_val)
+                    _ok = bool(_lhs_val == _rhs_val)
+                    if not _ok:
+                        raise AssertionError("Esperado " + _expected_str + ", obtenido " + _actual_str)
+                else:
+                    _single = ast.Module(body=[_stmt], type_ignores=[])
+                    ast.fix_missing_locations(_single)
+                    exec(compile(_single, "<assert>", "exec"), _ns)
+                _report["passedCount"] += 1
+                _report["items"].append({
+                    "name": _label if is_hidden else (_label + ": " + _expr_src[:64]),
+                    "passed": True,
+                    "isHidden": is_hidden,
+                    "message": "Superado" if is_hidden else ("OK (" + _expr_src[:64] + ")"),
+                })
+            except AssertionError as _err:
+                _report["passed"] = False
+                _item = {
+                    "name": _label,
+                    "passed": False,
+                    "isHidden": is_hidden,
+                    "message": str(_err) or ("Fallo en " + (_label if is_hidden else _expr_src[:64])),
+                }
+                if _expected_str is not None and not is_hidden:
+                    _item["expected"] = _expected_str
+                    _item["actual"] = _actual_str
+                elif is_hidden:
+                    _item["message"] = "Fallo en caso de transferencia/borde oculto. Revisa casos limite (vacios, negativos o aliasing)."
+                _report["items"].append(_item)
+            except Exception:
+                _report["passed"] = False
+                _report["items"].append({
+                    "name": _label,
+                    "passed": False,
+                    "isHidden": is_hidden,
+                    "message": traceback.format_exc(limit=2),
+                })
+        else:
+            _single = ast.Module(body=[_stmt], type_ignores=[])
+            ast.fix_missing_locations(_single)
+            try:
+                exec(compile(_single, "<setup>", "exec"), _ns)
+            except Exception:
+                _report["total"] += 1
+                _report["passed"] = False
+                _report["items"].append({
+                    "name": "Preparacion de pruebas",
+                    "passed": False,
+                    "isHidden": is_hidden,
+                    "message": traceback.format_exc(limit=2),
+                })
+                return
+
 with contextlib.redirect_stdout(_capture), contextlib.redirect_stderr(_capture):
     try:
         exec(compile(_user_code, "<user_code>", "exec"), _ns)
@@ -137,6 +231,7 @@ with contextlib.redirect_stdout(_capture), contextlib.redirect_stderr(_capture):
         _report["items"].append({
             "name": "Ejecucion del codigo del usuario",
             "passed": False,
+            "isHidden": False,
             "message": traceback.format_exc(limit=3),
         })
         _report["total"] = 1
@@ -144,36 +239,8 @@ with contextlib.redirect_stdout(_capture), contextlib.redirect_stderr(_capture):
         print("__TEST_REPORT__" + json.dumps(_report))
         raise SystemExit(0)
 
-    if _unit_test_code.strip():
-        _test_lines = [ln for ln in _unit_test_code.splitlines() if ln.strip()]
-        _report["total"] = max(1, len(_test_lines))
-        try:
-            exec(compile(_unit_test_code, "<unit_tests>", "exec"), _ns)
-            _report["passedCount"] = _report["total"]
-            _report["items"].append({
-                "name": "Suite de pruebas (assert/doctest)",
-                "passed": True,
-                "message": "Todas las aserciones se cumplieron.",
-            })
-        except AssertionError as _err:
-            _report["passed"] = False
-            _report["passedCount"] = 0
-            _report["items"].append({
-                "name": "Suite de pruebas (assert/doctest)",
-                "passed": False,
-                "message": "AssertionError: " + (str(_err) or "asercion fallida"),
-            })
-        except Exception:
-            _report["passed"] = False
-            _report["passedCount"] = 0
-            _report["items"].append({
-                "name": "Suite de pruebas (assert/doctest)",
-                "passed": False,
-                "message": traceback.format_exc(limit=3),
-            })
-    else:
-        _report["total"] = 0
-        _report["passedCount"] = 0
+    _run_test_suite(_unit_test_code, False)
+    _run_test_suite(_hidden_test_code, True)
 
 _report["rawOutput"] = _capture.getvalue()
 print("__TEST_REPORT__" + json.dumps(_report))

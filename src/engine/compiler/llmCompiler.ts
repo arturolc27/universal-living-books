@@ -28,27 +28,32 @@ ${depthDirective}
 REGLAS ESTRICTAS DE FORMATO:
 1. Emite EXCLUSIVAMENTE un objeto JSON valido (sin markdown ni texto fuera del JSON).
 2. Usa SIEMPRE los nombres de campo exactos definidos abajo.
-3. Incluye al menos 2 bloques "PROSE" (salvo modo agíl) con explicacion clara, ejemplos en \`\`\`python ... \`\`\`, callouts estrategicos (TIP, WARNING, ERROR_TRAP, BOOK_NOTE) rescatando matices del autor y terminos tecnicos marcados en [[termino]].
-4. Incluye de 3 a 5 ejercicios interactivos variados (OUTPUT_PREDICTION, INTERACTIVE_VISUALIZER, SYNTAX_CLOZE, PARSONS_PROBLEM, QUICK_QUIZ, CODE_LAB, FLASHCARD) derivados directamente de los ejemplos, variables y temas reales de "cleanText" (NUNCA inventes ejercicios genericos ni dejes codigo vacio).
-5. Usa "sectionTitle" recibido como titulo real de la leccion (o traduccion fiel al idioma elegido).
+3. Incluye al menos 2 bloques "PROSE" (salvo modo agil) con explicacion clara, etiquetas "subgoals" (2-4 subobjetivos del ejemplo), ejemplos en \`\`\`python ... \`\`\`, callouts estrategicos (TIP, WARNING, ERROR_TRAP, BOOK_NOTE) y terminos en [[termino]].
+4. Incluye de 3 a 5 ejercicios interactivos variados (OUTPUT_PREDICTION, INTERACTIVE_VISUALIZER, PARSONS_PROBLEM con al menos 1 isDistractor:true, BUG_AUTOPSY cuando haya errores/trampas, SYNTAX_CLOZE, AST_CHALLENGE o CODE_LAB con hiddenTestCode y progressiveHints, FLASHCARD con sourceBlockId apuntando a un reto previo) derivados directamente de "cleanText".
+5. Usa "linkedFlashcardId" en los retos para enlazarlos a la FLASHCARD de la leccion, "conceptTags" (1-2 etiquetas) y "gatesNextBlock": true en OUTPUT_PREDICTION y PARSONS_PROBLEM.
+6. Usa "sectionTitle" recibido como titulo real de la leccion (o traduccion fiel al idioma elegido).
 
 CONTRATO EXACTO DE CAMPOS POR TIPO DE BLOQUE:
 - PROSE:
-  { "blockId": "b1", "type": "PROSE", "markdown": "Texto explicativo en Markdown con \`\`\`python ... \`\`\` y [[termino]]", "callout": { "kind": "TIP|WARNING|BOOK_NOTE|ERROR_TRAP", "title": "...", "body": "..." } }
+  { "blockId": "b1", "type": "PROSE", "markdown": "Texto explicativo en Markdown con \`\`\`python ... \`\`\` y [[termino]]", "subgoals": [{ "label": "Inicializar acumulador" }], "callout": { "kind": "TIP|WARNING|BOOK_NOTE|ERROR_TRAP", "title": "...", "body": "..." } }
 - OUTPUT_PREDICTION:
-  { "blockId": "b2", "type": "OUTPUT_PREDICTION", "gatesNextBlock": true, "prompt": "...", "codeSnippet": "x = 5\\ny = x + 2\\nprint(y)", "options": ["7", "5", "Error", "5 2"], "correctOptionIndex": 0, "expectedReturnType": "int|float|str|bool|Error", "explanation": "..." }
+  { "blockId": "b2", "type": "OUTPUT_PREDICTION", "gatesNextBlock": true, "conceptTags": ["mutabilidad"], "linkedFlashcardId": "card-1", "prompt": "...", "codeSnippet": "x = 5\\ny = x + 2\\nprint(y)", "options": ["7", "5", "Error", "5 2"], "correctOptionIndex": 0, "expectedReturnType": "int|float|str|bool|NoneType|list|dict|tuple|set|Error", "explanation": "..." }
 - INTERACTIVE_VISUALIZER (usar precomputedMemoryTraces cuando existan):
   { "blockId": "b3", "type": "INTERACTIVE_VISUALIZER", "visualizerKind": "MEMORY_MODEL", "title": "...", "codeContext": "x = 10\\ny = x", "payload": { "memorySteps": [{ "stepIndex": 0, "lineNumber": 1, "explanation": "...", "frames": [{ "name": "<module>", "isCurrent": true, "variables": { "x": "id1" } }], "heap": [{ "id": "id1", "type": "int", "value": "10", "status": "NEW" }] }] } }
+- BUG_AUTOPSY (cuando el tema tenga errores comunes):
+  { "blockId": "b3b", "type": "BUG_AUTOPSY", "title": "...", "prompt": "...", "codeSnippet": "...", "tracebackText": "...", "culpritLineNumber": 2, "options": ["Causa real", "Distractor 1"], "correctOptionIndex": 0, "explanation": "...", "linkedFlashcardId": "card-1" }
 - SYNTAX_CLOZE (ideal para movil):
-  { "blockId": "b4", "type": "SYNTAX_CLOZE", "title": "...", "prompt": "...", "codeTemplate": "def saludar(___0___):\\n    ___1___ f'Hola {nombre}'", "blanks": [{ "id": "b0", "options": ["nombre", "'nombre'"], "correctOption": "nombre" }, { "id": "b1", "options": ["return", "print"], "correctOption": "return" }], "explanation": "..." }
-- PARSONS_PROBLEM:
-  { "blockId": "b5", "type": "PARSONS_PROBLEM", "prompt": "...", "blocks": [{ "id": "p1", "code": "def f(x):", "correctOrder": 0, "correctIndent": 0, "isDistractor": false }, { "id": "p2", "code": "return x * 2", "correctOrder": 1, "correctIndent": 1, "isDistractor": false }] }
+  { "blockId": "b4", "type": "SYNTAX_CLOZE", "title": "...", "prompt": "...", "codeTemplate": "def saludar(___0___):\\n    ___1___ f'Hola {nombre}'", "blanks": [{ "id": "b0", "options": ["nombre", "'nombre'"], "correctOption": "nombre" }, { "id": "b1", "options": ["return", "print"], "correctOption": "return" }], "explanation": "...", "linkedFlashcardId": "card-1" }
+- PARSONS_PROBLEM (SIEMPRE incluir >= 1 distractor con isDistractor:true y correctOrder:-1):
+  { "blockId": "b5", "type": "PARSONS_PROBLEM", "gatesNextBlock": true, "prompt": "...", "blocks": [{ "id": "p1", "code": "def f(x):", "correctOrder": 0, "correctIndent": 0, "isDistractor": false }, { "id": "p2", "code": "return x * 2", "correctOrder": 1, "correctIndent": 1, "isDistractor": false }, { "id": "p3", "code": "print(x * 2)", "correctOrder": -1, "correctIndent": 1, "isDistractor": true }], "linkedFlashcardId": "card-1" }
 - CODE_LAB:
-  { "blockId": "b6", "type": "CODE_LAB", "title": "...", "instructions": "...", "scaffoldMode": "FREE_SANDBOX", "starterCode": "def resolver(n):\\n    pass", "unitTestCode": "assert resolver(3) == 6" }
+  { "blockId": "b6", "type": "CODE_LAB", "title": "...", "instructions": "...", "scaffoldMode": "FREE_SANDBOX", "labPhase": "MODIFY|FADED|MAKE", "starterCode": "def resolver(n):\\n    pass", "unitTestCode": "assert resolver(3) == 6", "hiddenTestCode": "assert resolver(0) == 0", "progressiveHints": ["Pista conceptual", "Pista estructural"], "linkedFlashcardId": "card-1" }
+- AST_CHALLENGE:
+  { "blockId": "b6b", "type": "AST_CHALLENGE", "title": "...", "instructions": "...", "starterCode": "...", "astConstraints": { "requiredNodeTypes": ["ListComp"], "customAstMessage": "Usa una comprension de lista." }, "unitTestCode": "...", "hiddenTestCode": "...", "linkedFlashcardId": "card-1" }
 - QUICK_QUIZ:
   { "blockId": "b7", "type": "QUICK_QUIZ", "title": "...", "questions": [{ "id": "q1", "question": "...", "options": ["A", "B", "C"], "correctIndex": 0, "explanation": "..." }] }
-- FLASHCARD (OBLIGATORIO frontMarkdown y backMarkdown no vacios):
-  { "blockId": "b8", "type": "FLASHCARD", "cardId": "card-1", "frontMarkdown": "Pregunta conceptual", "backMarkdown": "Respuesta clara y concisa", "codeExample": "x = 1", "tags": ["python"] }
+- FLASHCARD (OBLIGATORIO frontMarkdown, backMarkdown y sourceBlockId apuntando al blockId de un reto previo):
+  { "blockId": "b8", "type": "FLASHCARD", "cardId": "card-1", "sourceBlockId": "b2", "frontMarkdown": "Pregunta conceptual", "backMarkdown": "Respuesta clara y concisa", "codeExample": "x = 1", "tags": ["python"] }
 
 CAMPOS RAIZ OBLIGATORIOS DE MicroLesson:
 { "lessonId": "...", "order": 1, "title": "...", "estimatedMinutes": 8, "learningObjectives": ["Objetivo 1", "Objetivo 2"], "takeaways": ["Idea clave 1"], "blocks": [...], "extractedGlossary": { "termino": { "term": "termino", "definition": "...", "chapterIntroduced": 1 } } }`;

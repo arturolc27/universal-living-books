@@ -133,13 +133,14 @@ export class PythonRuntimeBridge {
 
   async executeAndEvaluate(
     code: string,
-    options?: { astConstraints?: AstConstraints; unitTestCode?: string }
+    options?: { astConstraints?: AstConstraints; unitTestCode?: string; hiddenTestCode?: string }
   ): Promise<PythonExecutionResult> {
     return this.dispatch<PythonExecutionResult>({
       type: 'EXECUTE_AND_EVALUATE',
       code,
       astConstraints: options?.astConstraints,
       unitTestCode: options?.unitTestCode,
+      hiddenTestCode: options?.hiddenTestCode,
     });
   }
 

@@ -12,15 +12,29 @@ const STATUS_COLORS: Record<MemoryStep['heap'][number]['status'], string> = {
   ORPHANED: 'var(--text-muted)',
 };
 
-export function MemoryHeapVisualizer({ block }: { block: InteractiveVisualizerBlock }) {
+export function MemoryHeapVisualizer({
+  block,
+  overrideSteps,
+  onDragResolved,
+}: {
+  block: InteractiveVisualizerBlock;
+  overrideSteps?: MemoryStep[];
+  onDragResolved?: () => void;
+}) {
   const liveMemorySteps = usePlatformStore((s) => s.liveMemorySteps);
+  const liveMemoryOwnerBlockId = usePlatformStore((s) => s.liveMemoryOwnerBlockId);
   const recordAttempt = usePlatformStore((s) => s.recordAttempt);
+  const recordLearningTelemetry = usePlatformStore((s) => s.recordLearningTelemetry);
+  const activeBookId = usePlatformStore((s) => s.activeBookId);
   const pushToast = usePlatformStore((s) => s.pushToast);
 
   const steps = useMemo<MemoryStep[]>(() => {
-    if (liveMemorySteps.length > 0) return liveMemorySteps;
+    if (overrideSteps && overrideSteps.length > 0) return overrideSteps;
+    if (liveMemoryOwnerBlockId === block.blockId && liveMemorySteps.length > 0) {
+      return liveMemorySteps;
+    }
     return block.payload?.memorySteps ?? [];
-  }, [block.payload, liveMemorySteps]);
+  }, [overrideSteps, liveMemoryOwnerBlockId, block.blockId, block.payload, liveMemorySteps]);
 
   const [stepIndex, setStepIndex] = useState(0);
   const [dragResolved, setDragResolved] = useState<Record<number, boolean>>({});
@@ -55,6 +69,16 @@ export function MemoryHeapVisualizer({ block }: { block: InteractiveVisualizerBl
       setDragResolved((prev) => ({ ...prev, [stepIndex]: true }));
       setSelectedVariable(null);
       await recordAttempt(true);
+      if (activeBookId) {
+        void recordLearningTelemetry({
+          bookId: activeBookId,
+          blockId: block.blockId,
+          eventType: 'PREDICTION_ATTEMPT',
+          conceptTag: block.conceptTags?.[0],
+          passed: true,
+        });
+      }
+      onDragResolved?.();
       pushToast({
         title: 'Conexion correcta',
         description: dragTask.hint,
@@ -62,6 +86,15 @@ export function MemoryHeapVisualizer({ block }: { block: InteractiveVisualizerBl
       });
     } else {
       await recordAttempt(false);
+      if (activeBookId) {
+        void recordLearningTelemetry({
+          bookId: activeBookId,
+          blockId: block.blockId,
+          eventType: 'PREDICTION_ATTEMPT',
+          conceptTag: block.conceptTags?.[0],
+          passed: false,
+        });
+      }
       pushToast({
         title: 'Conexion incorrecta',
         description: 'Ese objeto no es el referenciado por la variable. Intenta de nuevo.',

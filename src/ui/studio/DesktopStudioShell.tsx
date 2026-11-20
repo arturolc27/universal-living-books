@@ -85,12 +85,17 @@ export function DesktopStudioShell() {
   const setActiveBlockIndex = usePlatformStore((s) => s.setActiveBlockIndex);
   const advanceUnlockedBlock = usePlatformStore((s) => s.advanceUnlockedBlock);
   const resolvePcLab = usePlatformStore((s) => s.resolvePcLab);
+  const recordAttempt = usePlatformStore((s) => s.recordAttempt);
+  const flagPcLabFailure = usePlatformStore((s) => s.flagPcLabFailure);
+  const fastTrackChapters = usePlatformStore((s) => s.fastTrackChapters);
+  const setChapterFastTrack = usePlatformStore((s) => s.setChapterFastTrack);
 
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('ACTIVITY');
   const [studioView, setStudioView] = useState<StudioView>('LESSON');
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const chapter = cartridge?.chapters.find((c) => c.chapterId === activeChapterId) ?? cartridge?.chapters[0];
+  const isFastTrack = Boolean(cartridge && chapter && fastTrackChapters[`${cartridge.bookId}::${chapter.chapterId}`]);
 
   const stageGroups = useMemo(
     () => (lesson ? groupBlocksIntoStages(lesson) : []),
@@ -110,6 +115,12 @@ export function DesktopStudioShell() {
   const currentStageId = currentBlock ? classifyBlockStage(currentBlock.type) : 'FOUNDATION';
   const progressPct = Math.round(((unlockedBlockIndex + 1) / lesson.blocks.length) * 100);
   const isAtEndOfLesson = safeActiveIdx >= lesson.blocks.length - 1;
+  const isCurrentBlockGated = Boolean(
+    currentBlock &&
+      isInteractiveBlock(currentBlock) &&
+      currentBlock.gatesNextBlock !== false &&
+      safeActiveIdx >= unlockedBlockIndex
+  );
 
   const sandboxBlock: CodeLabBlock = {
     blockId: `sandbox-${lesson.lessonId}`,
@@ -121,11 +132,37 @@ export function DesktopStudioShell() {
     unitTestCode: '',
   };
 
+  const nextReachableIndex = (fromIdx: number): number => {
+    let target = fromIdx + 1;
+    if (isFastTrack) {
+      while (
+        target < lesson.blocks.length - 1 &&
+        (lesson.blocks[target].type === 'PARSONS_PROBLEM' ||
+          lesson.blocks[target].type === 'SYNTAX_CLOZE')
+      ) {
+        target += 1;
+      }
+    }
+    return Math.min(target, lesson.blocks.length - 1);
+  };
+
   const handleAdvanceStep = () => {
+    if (isCurrentBlockGated) return;
     if (safeActiveIdx < unlockedBlockIndex) {
       setActiveBlockIndex(safeActiveIdx + 1);
     } else if (safeActiveIdx < lesson.blocks.length - 1) {
-      void advanceUnlockedBlock(safeActiveIdx + 1);
+      void advanceUnlockedBlock(nextReachableIndex(safeActiveIdx));
+    }
+  };
+
+  const handleSkipWithReinforcement = async () => {
+    await recordAttempt(false);
+    const linked = (currentBlock as { linkedFlashcardId?: string } | undefined)?.linkedFlashcardId;
+    if (linked) {
+      await flagPcLabFailure(linked);
+    }
+    if (safeActiveIdx < lesson.blocks.length - 1) {
+      void advanceUnlockedBlock(nextReachableIndex(safeActiveIdx));
     }
   };
 
@@ -134,7 +171,7 @@ export function DesktopStudioShell() {
       resolvePcLab(cartridge.bookId, lesson.lessonId, currentBlock.blockId);
     }
     if (safeActiveIdx < lesson.blocks.length - 1) {
-      void advanceUnlockedBlock(safeActiveIdx + 1);
+      void advanceUnlockedBlock(nextReachableIndex(safeActiveIdx));
     }
   };
 
@@ -276,7 +313,22 @@ export function DesktopStudioShell() {
               <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted">
                 <BookOpen size={11} /> Lección: {lesson.title}
               </span>
-              <span className="text-[10px] text-muted">{lesson.estimatedMinutes} min</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setChapterFastTrack(chapter.chapterId, !isFastTrack)}
+                  title="Adaptar andamiaje (Kalyuga): oculta Parsons/Cloze básicos si ya dominas la sintaxis"
+                  className={cn(
+                    'rounded-full border px-2 py-0.5 text-[10px] font-semibold transition-colors',
+                    isFastTrack
+                      ? 'border-secondary bg-secondary/15 text-secondary'
+                      : 'border-subtle text-muted hover:text-primary'
+                  )}
+                >
+                  {isFastTrack ? 'Modo Ágil (Intermedio)' : 'Guía Completa'}
+                </button>
+                <span className="text-[10px] text-muted">{lesson.estimatedMinutes} min</span>
+              </div>
             </div>
 
             <div className="min-h-0 flex-1">
@@ -294,7 +346,7 @@ export function DesktopStudioShell() {
             </div>
 
             {/* Barra de Progresión Fija */}
-            <div className="flex items-center justify-between gap-2 border-t border-subtle bg-surface/60 px-3 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-subtle bg-surface/60 px-3 py-2">
               <button
                 type="button"
                 disabled={safeActiveIdx === 0}
@@ -309,18 +361,30 @@ export function DesktopStudioShell() {
               </span>
 
               {!isAtEndOfLesson ? (
-                <button
-                  type="button"
-                  onClick={handleAdvanceStep}
-                  className="flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-canvas"
-                >
-                  Siguiente <ArrowRight size={13} />
-                </button>
+                isCurrentBlockGated ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleSkipWithReinforcement()}
+                    title="Resuelve el reto a la derecha para avanzar limpio, o márcalo para repaso SRS"
+                    className="flex items-center gap-1 rounded-lg border border-secondary/50 bg-secondary/10 px-2.5 py-1.5 text-[11px] font-semibold text-secondary hover:bg-secondary/20"
+                  >
+                    Marcar para refuerzo SRS y avanzar
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleAdvanceStep}
+                    className="flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-canvas"
+                  >
+                    Siguiente <ArrowRight size={13} />
+                  </button>
+                )
               ) : (
                 <button
                   type="button"
                   onClick={() => void goToNextLesson()}
-                  className="flex items-center gap-1 rounded-lg bg-success px-3 py-1.5 text-xs font-semibold text-canvas"
+                  disabled={isCurrentBlockGated}
+                  className="flex items-center gap-1 rounded-lg bg-success px-3 py-1.5 text-xs font-semibold text-canvas disabled:opacity-40"
                 >
                   Siguiente lección <ChevronLeft size={13} className="rotate-180" />
                 </button>

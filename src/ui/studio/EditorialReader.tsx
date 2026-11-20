@@ -159,6 +159,19 @@ function ProseRenderer({
 
   return (
     <div className="space-y-3">
+      {block.subgoals && block.subgoals.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {block.subgoals.map((sg, idx) => (
+            <span
+              key={idx}
+              className="inline-flex items-center gap-1 rounded-full border border-accent/30 bg-accent/10 px-2.5 py-0.5 text-[10px] font-semibold text-accent"
+              title={sg.description}
+            >
+              <span className="opacity-70">#{idx + 1}</span> {sg.label}
+            </span>
+          ))}
+        </div>
+      )}
       <RichMarkdown
         content={block.markdown}
         glossary={glossary}
@@ -223,7 +236,7 @@ export function EditorialReader({
   onRecompileBook?: () => void;
 }) {
   const setActiveGlossaryTerm = usePlatformStore((s) => s.setActiveGlossaryTerm);
-  const [readerTab, setReaderTab] = useState<ReaderTab>('COMBINED');
+  const [readerTab, setReaderTab] = useState<ReaderTab>('GUIDE');
   const [expandedForSource, setExpandedForSource] = useState<string | null>(null);
   const expandFullBookPassage = Boolean(sourceBookMarkdown && expandedForSource === sourceBookMarkdown);
   const setExpandFullBookPassage = (next: boolean | ((prev: boolean) => boolean)) => {

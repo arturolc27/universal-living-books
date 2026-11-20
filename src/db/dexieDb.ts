@@ -1,5 +1,12 @@
 import Dexie, { type Table } from 'dexie';
-import type { BookCartridge, Chapter, GlossaryEntry, MasteryTier, MemoryStep } from '../types/cartridge.types';
+import type {
+  BookCartridge,
+  Chapter,
+  GlossaryEntry,
+  MasteryTier,
+  MemoryStep,
+  PythonMisconceptionId,
+} from '../types/cartridge.types';
 import type { CompilationJob } from '../types/compiler.types';
 
 export interface InstalledCartridgeRecord {
@@ -26,7 +33,49 @@ export interface SrsCardStateRecord {
   easeFactor: number;
   nextReviewTimestamp: number;
   failedInPcLab: boolean;
+  enrolled?: boolean;
+  enrolledAt?: number;
+  sourceBlockId?: string;
+  conceptTags?: string[];
+  misconceptionId?: PythonMisconceptionId;
   updatedAt: number;
+}
+
+export type ConceptMasteryStatus = 'UNSEEN' | 'PRACTICING' | 'NEEDS_REVIEW' | 'MASTERED';
+
+export interface ConceptMasteryRecord {
+  bookId: string;
+  conceptTag: string;
+  status: ConceptMasteryStatus;
+  predictionHits: number;
+  predictionAttempts: number;
+  transferPassed: boolean;
+  delayedReviewPassed: boolean;
+  misconceptionHits: Record<string, number>;
+  misconceptionResolved: string[];
+  updatedAt: number;
+}
+
+export type TelemetryEventType =
+  | 'PREDICTION_ATTEMPT'
+  | 'TRANSFER_LAB'
+  | 'SRS_DELAYED_REVIEW'
+  | 'MISCONCEPTION_TRIGGERED'
+  | 'MISCONCEPTION_RESOLVED'
+  | 'THRASHING_DETECTED';
+
+export interface LearningTelemetryRecord {
+  id?: number;
+  bookId: string;
+  lessonId?: string;
+  blockId?: string;
+  eventType: TelemetryEventType;
+  conceptTag?: string;
+  misconceptionId?: PythonMisconceptionId;
+  passed?: boolean;
+  latencyMs?: number;
+  daysSinceLastPractice?: number;
+  createdAt: number;
 }
 
 export interface SavedUserCodeRecord {
@@ -108,6 +157,8 @@ export class LivingBooksDB extends Dexie {
   documentPages!: Table<DocumentPageRecord, [string, number]>;
   bookAssets!: Table<BookAssetRecord, [string, string]>;
   lessonTranslations!: Table<LessonTranslationRecord, [string, string, string]>;
+  conceptMastery!: Table<ConceptMasteryRecord, [string, string]>;
+  learningTelemetry!: Table<LearningTelemetryRecord, number>;
 
   constructor() {
     super('LivingBooksDB_v2');
@@ -132,6 +183,10 @@ export class LivingBooksDB extends Dexie {
     });
     this.version(5).stores({
       lessonTranslations: '[bookId+lessonId+lang], bookId, lessonId, lang, updatedAt',
+    });
+    this.version(6).stores({
+      conceptMastery: '[bookId+conceptTag], bookId, conceptTag, status, updatedAt',
+      learningTelemetry: '++id, bookId, eventType, conceptTag, createdAt',
     });
 
     // Diagnostico: evita cuelgues silenciosos por bloqueos de version.

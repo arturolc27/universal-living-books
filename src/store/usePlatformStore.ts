@@ -11,6 +11,7 @@ import type {
 import {
   createInitialUserStats,
   livingBooksDb,
+  type LearningTelemetryRecord,
   type LessonProgressRecord,
   type SrsCardStateRecord,
   type UserStatsRecord,
@@ -78,11 +79,14 @@ interface PlatformState {
   lessonProgressMap: Record<string, LessonProgressRecord>;
   srsStates: Record<string, SrsCardStateRecord>;
   pcLabQueue: PcLabQueueItem[];
+  fastTrackChapters: Record<string, boolean>;
+  telemetryEvents: LearningTelemetryRecord[];
   userStats: UserStatsRecord;
   unlockedAchievementIds: string[];
   toasts: ToastMessage[];
   liveMemoryTrace: PythonExecutionResult | null;
   liveMemorySteps: MemoryStep[];
+  liveMemoryOwnerBlockId: string | null;
   isHydrated: boolean;
   commandPaletteOpen: boolean;
   settingsOpen: boolean;
@@ -94,6 +98,7 @@ interface PlatformState {
   setCompilerOpen: (open: boolean) => void;
   setSettings: (partial: Partial<PlatformSettings>) => void;
   setSandboxCodeRequest: (code: string | null) => void;
+  setChapterFastTrack: (chapterId: string, fastTrack: boolean) => void;
   hydrateFromDb: () => Promise<void>;
   registerCartridge: (cartridge: BookCartridge, persist?: boolean) => Promise<void>;
   deleteBook: (bookId: string) => Promise<void>;
@@ -117,10 +122,11 @@ interface PlatformState {
   syncVirtualFilesFromRuntime: (files: Record<string, string>) => Promise<void>;
   recordAttempt: (firstTryCorrect: boolean) => Promise<void>;
   recordAstMastery: () => Promise<void>;
+  recordLearningTelemetry: (event: Omit<LearningTelemetryRecord, 'id' | 'createdAt'>) => Promise<void>;
   flagPcLabFailure: (cardId: string) => Promise<void>;
-  gradeFlashcard: (cardId: string, grade: Sm2Grade) => Promise<void>;
+  gradeFlashcard: (cardId: string, grade: Sm2Grade, latencyMs?: number) => Promise<void>;
   setLiveMemoryTrace: (result: PythonExecutionResult | null) => void;
-  setLiveMemorySteps: (steps: MemoryStep[]) => void;
+  setLiveMemorySteps: (steps: MemoryStep[], ownerBlockId?: string | null) => void;
   pushToast: (toast: Omit<ToastMessage, 'id'>) => void;
   dismissToast: (id: string) => void;
   checkAchievements: () => Promise<void>;
@@ -209,11 +215,14 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
   lessonProgressMap: {},
   srsStates: {},
   pcLabQueue: loadPcLabQueue(),
+  fastTrackChapters: {},
+  telemetryEvents: [],
   userStats: DEFAULT_STATS,
   unlockedAchievementIds: [],
   toasts: [],
   liveMemoryTrace: null,
   liveMemorySteps: [],
+  liveMemoryOwnerBlockId: null,
   isHydrated: false,
   commandPaletteOpen: false,
   settingsOpen: false,
@@ -224,6 +233,13 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
   setSettingsOpen: (open) => set({ settingsOpen: open }),
   setCompilerOpen: (open) => set({ compilerOpen: open }),
   setSandboxCodeRequest: (code) => set({ sandboxCodeRequest: code }),
+  setChapterFastTrack: (chapterId, fastTrack) => {
+    const bookId = get().activeBookId;
+    if (!bookId) return;
+    set((state) => ({
+      fastTrackChapters: { ...state.fastTrackChapters, [`${bookId}::${chapterId}`]: fastTrack },
+    }));
+  },
   setSettings: (partial) => {
     const next = { ...get().settings, ...partial };
     persistSettings(next);
@@ -255,13 +271,14 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
   },
 
   hydrateFromDb: async () => {
-    const [installed, progress, srs, stats, achievements, translations] = await Promise.all([
+    const [installed, progress, srs, stats, achievements, translations, telemetry] = await Promise.all([
       livingBooksDb.installedCartridges.toArray(),
       livingBooksDb.lessonProgress.toArray(),
       livingBooksDb.srsCardsState.toArray(),
       livingBooksDb.userStats.get('global'),
       livingBooksDb.unlockedAchievements.toArray(),
       livingBooksDb.lessonTranslations.toArray().catch(() => []),
+      livingBooksDb.learningTelemetry ? livingBooksDb.learningTelemetry.toArray().catch(() => []) : Promise.resolve([]),
     ]);
 
     const cartridges: Record<string, BookCartridge> = { ...get().cartridges };
@@ -297,6 +314,7 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
       lessonProgressMap,
       srsStates,
       translatedLessons,
+      telemetryEvents: telemetry,
       userStats: stats ?? DEFAULT_STATS,
       unlockedAchievementIds: achievements.map((a) => `${a.bookId}::${a.achievementId}`),
       isHydrated: true,
@@ -515,9 +533,41 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
     };
 
     await livingBooksDb.lessonProgress.put(merged);
+
+    // Enrolar tarjetas de esta lección en SRS al completarla (solo material ya estudiado)
+    let nextSrsStates = get().srsStates;
+    if (isCompleted && lesson) {
+      const now = Date.now();
+      const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+      const updatedSrs = { ...nextSrsStates };
+      let changed = false;
+      for (const blk of lesson.blocks) {
+        if (blk.type === 'FLASHCARD') {
+          const key = srsKey(activeBookId, blk.cardId);
+          if (!updatedSrs[key] || !updatedSrs[key].enrolled) {
+            const base = updatedSrs[key] ?? createInitialSrsState(activeBookId, blk.cardId, now, true);
+            const enrolledRecord: SrsCardStateRecord = {
+              ...base,
+              enrolled: true,
+              enrolledAt: base.enrolledAt ?? now,
+              nextReviewTimestamp: base.failedInPcLab ? now : now + ONE_DAY_MS,
+              sourceBlockId: blk.sourceBlockId ?? base.sourceBlockId,
+              conceptTags: blk.conceptTags ?? blk.tags,
+              updatedAt: now,
+            };
+            updatedSrs[key] = enrolledRecord;
+            await livingBooksDb.srsCardsState.put(enrolledRecord);
+            changed = true;
+          }
+        }
+      }
+      if (changed) nextSrsStates = updatedSrs;
+    }
+
     set((state) => ({
       activeBlockIndex: clampedTarget,
       unlockedBlockIndex: clampedTarget,
+      srsStates: nextSrsStates,
       lessonProgressMap: {
         ...state.lessonProgressMap,
         [progressKey(activeBookId, activeLessonId)]: merged,
@@ -628,11 +678,11 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
   },
 
   recordAttempt: async (firstTryCorrect) => {
-    const stats = get().userStats;
+    const { userStats, activeBookId, activeLessonId, unlockedBlockIndex, lessonProgressMap } = get();
     const today = new Date().toISOString().slice(0, 10);
-    const lastDate = stats.lastStudyDate;
+    const lastDate = userStats.lastStudyDate;
 
-    let streak = stats.currentStreakDays;
+    let streak = userStats.currentStreakDays;
     if (lastDate !== today) {
       const last = new Date(lastDate).getTime();
       const now = new Date(today).getTime();
@@ -641,17 +691,38 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
     }
 
     const next: UserStatsRecord = {
-      ...stats,
+      ...userStats,
       currentStreakDays: streak,
       lastStudyDate: today,
-      totalAttempts: stats.totalAttempts + 1,
-      totalFirstTryHits: stats.totalFirstTryHits + (firstTryCorrect ? 1 : 0),
-      currentFirstTryStreak: firstTryCorrect ? stats.currentFirstTryStreak + 1 : 0,
+      totalAttempts: userStats.totalAttempts + 1,
+      totalFirstTryHits: userStats.totalFirstTryHits + (firstTryCorrect ? 1 : 0),
+      currentFirstTryStreak: firstTryCorrect ? userStats.currentFirstTryStreak + 1 : 0,
       updatedAt: Date.now(),
     };
 
     await livingBooksDb.userStats.put(next);
-    set({ userStats: next });
+
+    // Corregir GOLD falso: si falla un intento en la lección activa, marcar hadMistakes=true
+    let nextProgressMap = lessonProgressMap;
+    if (!firstTryCorrect && activeBookId && activeLessonId) {
+      const pKey = progressKey(activeBookId, activeLessonId);
+      const existing =
+        lessonProgressMap[pKey] ??
+        (await livingBooksDb.lessonProgress.get([activeBookId, activeLessonId]));
+      const updatedProg: LessonProgressRecord = {
+        bookId: activeBookId,
+        lessonId: activeLessonId,
+        unlockedBlockIndex: existing?.unlockedBlockIndex ?? unlockedBlockIndex,
+        isCompleted: existing?.isCompleted ?? false,
+        masteryTier: existing?.isCompleted ? 'SILVER' : existing?.masteryTier ?? 'IN_PROGRESS',
+        hadMistakes: true,
+        updatedAt: Date.now(),
+      };
+      await livingBooksDb.lessonProgress.put(updatedProg);
+      nextProgressMap = { ...lessonProgressMap, [pKey]: updatedProg };
+    }
+
+    set({ userStats: next, lessonProgressMap: nextProgressMap });
     await get().checkAchievements();
   },
 
@@ -667,6 +738,21 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
     await get().checkAchievements();
   },
 
+  recordLearningTelemetry: async (event) => {
+    const record: LearningTelemetryRecord = {
+      ...event,
+      createdAt: Date.now(),
+    };
+    try {
+      if (livingBooksDb.learningTelemetry) {
+        await livingBooksDb.learningTelemetry.add(record);
+      }
+    } catch {
+      // ignore in mocked test environments
+    }
+    set((state) => ({ telemetryEvents: [...state.telemetryEvents.slice(-500), record] }));
+  },
+
   flagPcLabFailure: async (cardId) => {
     const { activeBookId, srsStates } = get();
     if (!activeBookId) return;
@@ -676,11 +762,14 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
     set((state) => ({ srsStates: { ...state.srsStates, [key]: next } }));
   },
 
-  gradeFlashcard: async (cardId, grade) => {
+  gradeFlashcard: async (cardId, grade, latencyMs) => {
     const { activeBookId, srsStates, userStats } = get();
     if (!activeBookId) return;
     const key = srsKey(activeBookId, cardId);
-    const prev = srsStates[key] ?? createInitialSrsState(activeBookId, cardId);
+    const prev = srsStates[key] ?? createInitialSrsState(activeBookId, cardId, Date.now(), true);
+    const daysSinceLastPractice = prev.updatedAt
+      ? Math.max(0, (Date.now() - prev.updatedAt) / (24 * 60 * 60 * 1000))
+      : 0;
     const next = computeNextSm2State(prev, grade);
     await livingBooksDb.srsCardsState.put(next);
 
@@ -695,12 +784,22 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
       srsStates: { ...state.srsStates, [key]: next },
       userStats: nextStats,
     }));
+    await get().recordLearningTelemetry({
+      bookId: activeBookId,
+      blockId: cardId,
+      eventType: 'SRS_DELAYED_REVIEW',
+      conceptTag: prev.conceptTags?.[0],
+      passed: grade >= 3,
+      latencyMs,
+      daysSinceLastPractice,
+    });
     await get().checkAchievements();
   },
 
   setLiveMemoryTrace: (result) => set({ liveMemoryTrace: result }),
 
-  setLiveMemorySteps: (steps) => set({ liveMemorySteps: steps }),
+  setLiveMemorySteps: (steps, ownerBlockId = null) =>
+    set({ liveMemorySteps: steps, liveMemoryOwnerBlockId: ownerBlockId }),
 
   pushToast: (toast) => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;

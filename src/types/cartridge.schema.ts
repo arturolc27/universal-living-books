@@ -49,15 +49,36 @@ export const AchievementSpecSchema = z.object({
   }),
 });
 
+const PythonMisconceptionSchema = z.enum([
+  'MUTATION_ALIASING',
+  'MUTABLE_DEFAULT_ARG',
+  'SCOPE_LEGB_SHADOWING',
+  'PRINT_VS_RETURN',
+  'SHALLOW_LOOP_MUTATION',
+  'EQUALITY_VS_IDENTITY',
+  'RECURSION_NO_BASE_OR_RETURN',
+]);
+
+const SubgoalLabelSchema = z.object({
+  label: z.string().min(1),
+  startLine: z.number().int().positive().optional(),
+  endLine: z.number().int().positive().optional(),
+  description: z.string().optional(),
+});
+
 const BaseBlockFields = {
   blockId: z.string().min(1),
   gatesNextBlock: z.boolean().optional(),
+  conceptTags: z.array(z.string()).optional(),
+  misconceptionId: PythonMisconceptionSchema.optional(),
+  difficulty: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
 };
 
 export const ProseBlockSchema = z.object({
   ...BaseBlockFields,
   type: z.literal('PROSE'),
   markdown: z.string().min(1),
+  subgoals: z.array(SubgoalLabelSchema).optional(),
   callout: z
     .object({
       kind: z.enum(['TIP', 'WARNING', 'BOOK_NOTE', 'ERROR_TRAP']),
@@ -177,9 +198,12 @@ export const CodeLabBlockSchema = z.object({
   title: z.string().min(1),
   instructions: z.string().min(1),
   scaffoldMode: z.enum(['FREE_SANDBOX', 'FDR_5_STEPS', 'MULTI_FILE_PROJECT']),
+  labPhase: z.enum(['MODIFY', 'FADED', 'MAKE']).optional(),
   starterCode: z.string(),
   targetFileName: z.string().optional(),
   unitTestCode: z.string(),
+  hiddenTestCode: z.string().optional(),
+  progressiveHints: z.array(z.string()).optional(),
   fdrGuide: z
     .object({
       examples: z.string(),
@@ -205,6 +229,8 @@ export const AstChallengeBlockSchema = z.object({
     customAstMessage: z.string().min(1),
   }),
   unitTestCode: z.string(),
+  hiddenTestCode: z.string().optional(),
+  progressiveHints: z.array(z.string()).optional(),
   linkedFlashcardId: z.string().optional(),
 });
 
@@ -219,8 +245,10 @@ export const ParsonsProblemBlockSchema = z.object({
       correctOrder: z.number().int().min(-1),
       correctIndent: z.number().int().nonnegative(),
       isDistractor: z.boolean(),
+      subgoalLabel: z.string().optional(),
     })
   ),
+  subgoals: z.array(SubgoalLabelSchema).optional(),
   linkedFlashcardId: z.string().optional(),
 });
 
@@ -296,6 +324,7 @@ export const FlashcardBlockSchema = z.object({
   backMarkdown: z.string().min(1),
   codeExample: z.string().optional(),
   tags: z.array(z.string()),
+  sourceBlockId: z.string().optional(),
 });
 
 export const YouTubeRefBlockSchema = z.object({
@@ -340,6 +369,17 @@ export const ChapterSchema = z.object({
   number: z.number().int().positive(),
   title: z.string().min(1),
   summary: z.string(),
+  diagnosticCheck: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        question: z.string().min(1),
+        options: z.array(z.string()).min(2),
+        correctIndex: z.number().int().nonnegative(),
+        explanation: z.string().min(1),
+      })
+    )
+    .optional(),
   microLessons: z.array(MicroLessonSchema).min(1),
 });
 

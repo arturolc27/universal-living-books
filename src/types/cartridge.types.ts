@@ -69,15 +69,35 @@ export interface AchievementSpec {
   };
 }
 
+export type PythonMisconceptionId =
+  | 'MUTATION_ALIASING'
+  | 'MUTABLE_DEFAULT_ARG'
+  | 'SCOPE_LEGB_SHADOWING'
+  | 'PRINT_VS_RETURN'
+  | 'SHALLOW_LOOP_MUTATION'
+  | 'EQUALITY_VS_IDENTITY'
+  | 'RECURSION_NO_BASE_OR_RETURN';
+
+export interface SubgoalLabel {
+  label: string;
+  startLine?: number;
+  endLine?: number;
+  description?: string;
+}
+
 export interface BaseBlock {
   blockId: string;
   type: BlockType;
   gatesNextBlock?: boolean;
+  conceptTags?: string[];
+  misconceptionId?: PythonMisconceptionId;
+  difficulty?: 1 | 2 | 3;
 }
 
 export interface ProseBlock extends BaseBlock {
   type: 'PROSE';
   markdown: string;
+  subgoals?: SubgoalLabel[];
   callout?: {
     kind: 'TIP' | 'WARNING' | 'BOOK_NOTE' | 'ERROR_TRAP';
     title: string;
@@ -188,9 +208,12 @@ export interface CodeLabBlock extends BaseBlock {
   title: string;
   instructions: string;
   scaffoldMode: 'FREE_SANDBOX' | 'FDR_5_STEPS' | 'MULTI_FILE_PROJECT';
+  labPhase?: 'MODIFY' | 'FADED' | 'MAKE';
   starterCode: string;
   targetFileName?: string;
   unitTestCode: string;
+  hiddenTestCode?: string;
+  progressiveHints?: string[];
   fdrGuide?: FdrStepGuide;
   linkedFlashcardId?: string;
 }
@@ -209,6 +232,8 @@ export interface AstChallengeBlock extends BaseBlock {
   starterCode: string;
   astConstraints: AstConstraints;
   unitTestCode: string;
+  hiddenTestCode?: string;
+  progressiveHints?: string[];
   linkedFlashcardId?: string;
 }
 
@@ -218,12 +243,14 @@ export interface ParsonsCodeLine {
   correctOrder: number;
   correctIndent: number;
   isDistractor: boolean;
+  subgoalLabel?: string;
 }
 
 export interface ParsonsProblemBlock extends BaseBlock {
   type: 'PARSONS_PROBLEM';
   prompt: string;
   blocks: ParsonsCodeLine[];
+  subgoals?: SubgoalLabel[];
   linkedFlashcardId?: string;
 }
 
@@ -291,6 +318,8 @@ export interface FlashcardBlock extends BaseBlock {
   backMarkdown: string;
   codeExample?: string;
   tags: string[];
+  /** Enlaza esta tarjeta a un reto verificable (ej. OUTPUT_PREDICTION/BUG_AUTOPSY) para Active SRS. */
+  sourceBlockId?: string;
 }
 
 export interface YouTubeRefBlock extends BaseBlock {
@@ -335,6 +364,7 @@ export interface Chapter {
   number: number;
   title: string;
   summary: string;
+  diagnosticCheck?: QuickQuizQuestion[];
   microLessons: MicroLesson[];
 }
 
@@ -382,6 +412,9 @@ export interface UnitTestItem {
   name: string;
   passed: boolean;
   message: string;
+  isHidden?: boolean;
+  expected?: string;
+  actual?: string;
 }
 
 export interface UnitTestReport {

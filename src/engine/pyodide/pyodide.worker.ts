@@ -26,6 +26,7 @@ interface ExecuteAndEvaluateMessage {
   code: string;
   astConstraints?: AstConstraints;
   unitTestCode?: string;
+  hiddenTestCode?: string;
 }
 
 interface TraceExecutionMessage {
@@ -277,8 +278,8 @@ _ast_capture.getvalue()
   }
 
   let unitTestReport;
-  if (msg.unitTestCode && msg.unitTestCode.trim()) {
-    const testScript = buildUnitTestHarness(msg.code, msg.unitTestCode);
+  if ((msg.unitTestCode && msg.unitTestCode.trim()) || (msg.hiddenTestCode && msg.hiddenTestCode.trim())) {
+    const testScript = buildUnitTestHarness(msg.code, msg.unitTestCode ?? '', msg.hiddenTestCode ?? '');
     const testOut = String(
       await py.runPythonAsync(`
 import io, contextlib
@@ -316,6 +317,8 @@ import sys, json, io, contextlib
 _user_code = json.loads(${JSON.stringify(userCodeJson)})
 _max_steps = ${maxSteps}
 _steps = []
+_prev_heap = {}
+_drag_generated = False
 
 _IGNORED_TYPES = (int, float, str, bool, type(None))
 
@@ -341,47 +344,99 @@ def _format_value(obj):
         return "<unrepresentable>"
 
 def _snapshot(frame, line_no):
+    global _prev_heap, _drag_generated
     frames = []
+    heap_objects = {}
+    ref_counts = {}
     f = frame
     while f is not None:
-        variables = {}
-        for name, value in list(f.f_locals.items()):
-            if name.startswith("__"):
-                continue
-            variables[name] = "id" + str(id(value))
-        frames.append({
-            "name": f.f_code.co_name,
-            "isCurrent": f is frame,
-            "variables": variables,
-        })
+        if f.f_code.co_filename == "<traced>":
+            variables = {}
+            for name, value in list(f.f_locals.items()):
+                if name.startswith("__") or callable(value) and f.f_code.co_name == "<module>" and getattr(value, "__module__", None) == "__main__":
+                    pass
+                if name.startswith("__"):
+                    continue
+                heap_id = "id" + str(id(value))
+                variables[name] = heap_id
+                ref_counts.setdefault(heap_id, []).append((f.f_code.co_name, name))
+                if heap_id not in heap_objects:
+                    heap_objects[heap_id] = (type(value).__name__, _format_value(value))
+            frames.append({
+                "name": f.f_code.co_name,
+                "isCurrent": f is frame,
+                "variables": variables,
+            })
         f = f.f_back
 
     heap = []
-    seen = set()
-    for name, value in list(frame.f_locals.items()):
-        if name.startswith("__"):
-            continue
-        heap_id = "id" + str(id(value))
-        if heap_id in seen:
-            continue
-        seen.add(heap_id)
+    mutated_vars = []
+    new_vars = []
+    curr_heap = {}
+    for heap_id, (t_name, val_str) in heap_objects.items():
+        curr_heap[heap_id] = val_str
+        if heap_id not in _prev_heap:
+            status = "NEW"
+            new_vars.extend([v for (_fn, v) in ref_counts.get(heap_id, [])])
+        elif _prev_heap[heap_id] != val_str:
+            status = "MUTATED"
+            mutated_vars.extend([v for (_fn, v) in ref_counts.get(heap_id, [])])
+        else:
+            status = "ACTIVE"
         heap.append({
             "id": heap_id,
-            "type": type(value).__name__,
-            "value": _format_value(value),
-            "status": "ACTIVE",
+            "type": t_name,
+            "value": val_str,
+            "status": status,
         })
 
-    return {
+    aliased = [(hid, refs) for hid, refs in ref_counts.items() if len(refs) >= 2 and heap_objects[hid][0] in ("list", "dict", "set")]
+    notes = []
+    if mutated_vars:
+        notes.append("Mutacion in-place en: " + ", ".join(sorted(set(mutated_vars))))
+    if aliased:
+        names = ", ".join([v for (_fn, v) in aliased[0][1]])
+        notes.append("Aliasing activo (" + names + " -> " + aliased[0][0] + ")")
+    if not notes and new_vars:
+        notes.append("Nuevas referencias: " + ", ".join(sorted(set(new_vars))[:4]))
+    explanation = ("Linea " + str(line_no) + ": " + " | ".join(notes)) if notes else ("Ejecutando linea " + str(line_no))
+
+    step_obj = {
         "stepIndex": len(_steps),
         "lineNumber": line_no,
-        "explanation": "Ejecutando linea " + str(line_no),
+        "explanation": explanation,
         "frames": frames,
         "heap": heap,
     }
 
+    if not _drag_generated and len(_steps) >= 1:
+        if aliased:
+            target_hid, refs = aliased[0]
+            target_frame, target_var = refs[-1]
+            step_obj["interactiveDragTask"] = {
+                "fromFrame": target_frame,
+                "variable": target_var,
+                "expectedHeapId": target_hid,
+                "hint": "Correcto: ambas variables comparten el mismo objeto en el Heap (aliasing).",
+            }
+            _drag_generated = True
+        elif mutated_vars and len(heap) >= 2:
+            target_var = mutated_vars[0]
+            target_hid = frames[0]["variables"].get(target_var) if frames else None
+            if target_hid:
+                step_obj["interactiveDragTask"] = {
+                    "fromFrame": frames[0]["name"],
+                    "variable": target_var,
+                    "expectedHeapId": target_hid,
+                    "hint": "Exacto: el objeto muto in-place manteniendo la misma identidad en Heap.",
+                }
+                _drag_generated = True
+
+    _prev_heap = curr_heap
+    return step_obj
+
 def _tracer(frame, event, arg):
-    if event == "line":
+    if event == "line" and frame.f_code.co_filename == "<traced>":
         if len(_steps) < _max_steps:
             _steps.append(_snapshot(frame, frame.f_lineno))
         else:
