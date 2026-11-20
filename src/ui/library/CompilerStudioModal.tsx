@@ -131,12 +131,13 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
   const [chaptersIndex, setChaptersIndex] = useState<ChapterIndexEntry[]>([]);
   const [chunks, setChunks] = useState<SectionChunk[]>([]);
   const [config, setConfig] = useState<CompilerJobConfig>({
-    fastModel: settings.openrouterModel || 'deepseek/deepseek-v4.1-flash',
-    reasoningModel: 'deepseek/deepseek-v4.1-flash',
+    fastModel: settings.openrouterModel || 'google/gemini-2.5-flash',
+    reasoningModel: 'google/gemini-2.5-flash',
     concurrencyLimit: 4,
     dryRun: false,
     maxRetries: 2,
     outputExpansionFactor: 1.45,
+    targetLanguage: 'es',
   });
   const [localLog, setLocalLog] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -681,6 +682,21 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
                 </div>
 
                 <div className="space-y-2">
+                  <label className="block">
+                    <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted">
+                      Idioma principal de compilación (costo 1x)
+                    </span>
+                    <select
+                      value={config.targetLanguage || 'es'}
+                      onChange={(e) =>
+                        setConfig((c) => ({ ...c, targetLanguage: e.target.value as 'es' | 'en' }))
+                      }
+                      className="w-full rounded-lg border border-subtle bg-canvas px-3 py-2 text-xs text-primary outline-none focus:border-accent"
+                    >
+                      <option value="es">Español (Recomendado — luego alterna a EN bajo demanda)</option>
+                      <option value="en">Inglés / Original (luego alterna a ES bajo demanda)</option>
+                    </select>
+                  </label>
                   <label className="block">
                     <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted">
                       Modelo rapido (secciones estandar)

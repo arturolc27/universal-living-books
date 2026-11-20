@@ -9,17 +9,15 @@ import type {
 } from '../../types/compiler.types';
 import { validateBookCartridge } from '../../types/cartridge.schema';
 import { livingBooksDb, upsertCompiledChapterToBook } from '../../db/dexieDb';
-import { COMPILER_SYSTEM_INSTRUCTION, MICROLESSON_RESPONSE_SCHEMA } from './llmCompiler';
+import { buildCompilerSystemInstruction, MICROLESSON_RESPONSE_SCHEMA } from './llmCompiler';
 import { sanitizeLesson } from './lessonSanitizer';
 import type { SectionChunk, TracedSnippet } from './semanticChunker';
 
 export const MODEL_PRICING: ModelPricingConfig[] = [
-  { id: 'deepseek/deepseek-v4.1-flash', label: 'DeepSeek V4.1 Flash (recomendado)', provider: 'openrouter', inputPer1M: 0.14, outputPer1M: 0.28, isLocal: false, tpsBase: 90 },
-  { id: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash', provider: 'openrouter', inputPer1M: 0.075, outputPer1M: 0.3, isLocal: false, tpsBase: 130 },
-  { id: 'google/gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite (mas barato)', provider: 'openrouter', inputPer1M: 0.02, outputPer1M: 0.1, isLocal: false, tpsBase: 150 },
+  { id: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash (recomendado)', provider: 'openrouter', inputPer1M: 0.15, outputPer1M: 0.6, isLocal: false, tpsBase: 130 },
+  { id: 'google/gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite (mas economico)', provider: 'openrouter', inputPer1M: 0.075, outputPer1M: 0.3, isLocal: false, tpsBase: 160 },
+  { id: 'openai/gpt-4o-mini', label: 'GPT-4o mini (JSON preciso)', provider: 'openrouter', inputPer1M: 0.15, outputPer1M: 0.6, isLocal: false, tpsBase: 100 },
   { id: 'deepseek/deepseek-chat', label: 'DeepSeek V3', provider: 'openrouter', inputPer1M: 0.27, outputPer1M: 1.1, isLocal: false, tpsBase: 70 },
-  { id: 'google/gemini-2.0-flash-001', label: 'Gemini 2.0 Flash', provider: 'openrouter', inputPer1M: 0.1, outputPer1M: 0.4, isLocal: false, tpsBase: 120 },
-  { id: 'openai/gpt-4o-mini', label: 'GPT-4o mini', provider: 'openrouter', inputPer1M: 0.15, outputPer1M: 0.6, isLocal: false, tpsBase: 100 },
   { id: 'anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet (premium)', provider: 'openrouter', inputPer1M: 3.0, outputPer1M: 15.0, isLocal: false, tpsBase: 55 },
   { id: 'ollama/llama3.1:8b', label: 'Ollama Llama 3.1 8B (local)', provider: 'ollama', inputPer1M: 0, outputPer1M: 0, isLocal: true, tpsBase: 45 },
   { id: 'ollama/qwen2.5:14b', label: 'Ollama Qwen 2.5 14B (local)', provider: 'ollama', inputPer1M: 0, outputPer1M: 0, isLocal: true, tpsBase: 30 },
@@ -280,27 +278,35 @@ export class ParallelBookCompiler {
       };
     }
 
+    const targetLanguage = this.job.config.targetLanguage ?? 'es';
+    const sysInstruction = buildCompilerSystemInstruction(targetLanguage);
     const relevantTraces = this.traces.filter((t) => t.sectionId === chunk.sectionId);
     const userPayload = JSON.stringify({
       sectionId: chunk.sectionId,
       chapterNumber: chunk.chapterNumber,
       chapterTitle: chunk.chapterTitle,
       sectionTitle: chunk.sectionTitle,
+      targetLanguage,
       cleanText: chunk.text,
       precomputedMemoryTraces: relevantTraces,
       repairHint: previousError || undefined,
     });
 
     if (pricing.provider === 'ollama') {
-      return this.callOllama(model, userPayload);
+      return this.callOllama(model, sysInstruction, userPayload, chunk);
     }
     if (pricing.provider === 'gemini') {
-      return this.callGemini(model, userPayload);
+      return this.callGemini(model, sysInstruction, userPayload, chunk);
     }
-    return this.callOpenRouter(model, userPayload);
+    return this.callOpenRouter(model, sysInstruction, userPayload, chunk);
   }
 
-  private async callOpenRouter(model: string, userPayload: string): Promise<LlmResult> {
+  private async callOpenRouter(
+    model: string,
+    sysInstruction: string,
+    userPayload: string,
+    chunk: SectionChunk
+  ): Promise<LlmResult> {
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -312,7 +318,7 @@ export class ParallelBookCompiler {
       body: JSON.stringify({
         model,
         messages: [
-          { role: 'system', content: COMPILER_SYSTEM_INSTRUCTION },
+          { role: 'system', content: sysInstruction },
           { role: 'user', content: userPayload },
         ],
         response_format: { type: 'json_object' },
@@ -327,19 +333,24 @@ export class ParallelBookCompiler {
     const text = data.choices?.[0]?.message?.content;
     if (!text) throw new Error('Respuesta vacia del LLM.');
     return {
-      lesson: this.parseLesson(text),
+      lesson: this.parseLesson(text, chunk),
       inputTokens: data.usage?.prompt_tokens ?? estimateTokens(userPayload),
       outputTokens: data.usage?.completion_tokens ?? estimateTokens(text),
     };
   }
 
-  private async callGemini(model: string, userPayload: string): Promise<LlmResult> {
+  private async callGemini(
+    model: string,
+    sysInstruction: string,
+    userPayload: string,
+    chunk: SectionChunk
+  ): Promise<LlmResult> {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.credentials.geminiApiKey}`;
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: COMPILER_SYSTEM_INSTRUCTION }] },
+        systemInstruction: { parts: [{ text: sysInstruction }] },
         contents: [{ role: 'user', parts: [{ text: userPayload }] }],
         generationConfig: { responseMimeType: 'application/json', responseSchema: MICROLESSON_RESPONSE_SCHEMA, temperature: 0.2 },
       }),
@@ -352,13 +363,18 @@ export class ParallelBookCompiler {
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!text) throw new Error('Respuesta vacia del LLM.');
     return {
-      lesson: this.parseLesson(text),
+      lesson: this.parseLesson(text, chunk),
       inputTokens: data.usageMetadata?.promptTokenCount ?? estimateTokens(userPayload),
       outputTokens: data.usageMetadata?.candidatesTokenCount ?? estimateTokens(text),
     };
   }
 
-  private async callOllama(model: string, userPayload: string): Promise<LlmResult> {
+  private async callOllama(
+    model: string,
+    sysInstruction: string,
+    userPayload: string,
+    chunk: SectionChunk
+  ): Promise<LlmResult> {
     const base = this.credentials.ollamaBaseUrl || 'http://localhost:11434';
     const response = await fetch(`${base}/api/chat`, {
       method: 'POST',
@@ -368,7 +384,7 @@ export class ParallelBookCompiler {
         stream: false,
         format: 'json',
         messages: [
-          { role: 'system', content: COMPILER_SYSTEM_INSTRUCTION },
+          { role: 'system', content: sysInstruction },
           { role: 'user', content: userPayload },
         ],
       }),
@@ -382,16 +398,24 @@ export class ParallelBookCompiler {
     const text = data.message?.content;
     if (!text) throw new Error('Respuesta vacia de Ollama.');
     return {
-      lesson: this.parseLesson(text),
+      lesson: this.parseLesson(text, chunk),
       inputTokens: data.prompt_eval_count ?? estimateTokens(userPayload),
       outputTokens: data.eval_count ?? estimateTokens(text),
     };
   }
 
-  private parseLesson(text: string): MicroLesson {
-    const cleaned = text.trim().replace(/^```json\s*/i, '').replace(/```$/, '');
+  private parseLesson(text: string, chunk: SectionChunk): MicroLesson {
+    let cleaned = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      cleaned = cleaned.slice(start, end + 1);
+    }
     const parsed = JSON.parse(cleaned) as unknown;
-    return sanitizeLesson(parsed);
+    return sanitizeLesson(parsed, {
+      sectionTitle: chunk.sectionTitle,
+      cleanText: chunk.text,
+    });
   }
 
   private syntheticLesson(chunk: SectionChunk): MicroLesson {

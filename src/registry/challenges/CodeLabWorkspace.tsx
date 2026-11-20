@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   XCircle,
   Loader2,
+  RotateCcw,
 } from 'lucide-react';
 import type { CodeLabBlock, PythonExecutionResult } from '../../types/cartridge.types';
 import { pythonRuntimeBridge } from '../../engine/pyodide/pythonRuntimeBridge';
@@ -26,18 +27,26 @@ const FDR_STEPS = [
 
 type ResultTab = 'CONSOLE' | 'PLOTS' | 'AUDIT';
 
-export function CodeLabWorkspace({ block }: { block: CodeLabBlock }) {
+export function CodeLabWorkspace({
+  block,
+  onResolved,
+}: {
+  block: CodeLabBlock;
+  onResolved?: () => void;
+}) {
   const activeBookId = usePlatformStore((s) => s.activeBookId);
   const cartridges = usePlatformStore((s) => s.cartridges);
   const virtualFiles = usePlatformStore((s) => s.virtualFiles);
   const syncVirtualFilesFromRuntime = usePlatformStore((s) => s.syncVirtualFilesFromRuntime);
   const recordAttempt = usePlatformStore((s) => s.recordAttempt);
   const setLiveMemorySteps = usePlatformStore((s) => s.setLiveMemorySteps);
+  const sandboxCodeRequest = usePlatformStore((s) => s.sandboxCodeRequest);
+  const setSandboxCodeRequest = usePlatformStore((s) => s.setSandboxCodeRequest);
   const pushToast = usePlatformStore((s) => s.pushToast);
 
   const cartridge = activeBookId ? cartridges[activeBookId] : null;
 
-  const [code, setCode] = useState(block.starterCode);
+  const [code, setCode] = useState(block.starterCode ?? '');
   const [result, setResult] = useState<PythonExecutionResult | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [isTracing, setIsTracing] = useState(false);
@@ -45,10 +54,17 @@ export function CodeLabWorkspace({ block }: { block: CodeLabBlock }) {
   const [fdrStep, setFdrStep] = useState(0);
 
   useEffect(() => {
-    setCode(block.starterCode);
+    setCode(block.starterCode ?? '');
     setResult(null);
     setFdrStep(0);
   }, [block.blockId, block.starterCode]);
+
+  useEffect(() => {
+    if (sandboxCodeRequest) {
+      setCode(sandboxCodeRequest);
+      setSandboxCodeRequest(null);
+    }
+  }, [sandboxCodeRequest, setSandboxCodeRequest]);
 
   const ensureRuntime = useCallback(async () => {
     if (!cartridge) return;
@@ -65,20 +81,23 @@ export function CodeLabWorkspace({ block }: { block: CodeLabBlock }) {
     try {
       await ensureRuntime();
       const execResult = await pythonRuntimeBridge.executeAndEvaluate(code, {
-        unitTestCode: block.unitTestCode,
+        unitTestCode: block.unitTestCode || undefined,
       });
       setResult(execResult);
       if (execResult.updatedVirtualFiles) {
         await syncVirtualFilesFromRuntime(execResult.updatedVirtualFiles);
       }
-      const passed = execResult.unitTestReport?.passed ?? execResult.ok;
+      const passed = execResult.unitTestReport ? execResult.unitTestReport.passed : execResult.ok;
       await recordAttempt(passed);
       if (passed) {
         pushToast({
-          title: 'Pruebas superadas',
-          description: 'Tu codigo paso la suite de verificacion.',
+          title: block.unitTestCode ? 'Pruebas superadas' : 'Ejecucion exitosa',
+          description: block.unitTestCode
+            ? 'Tu codigo paso la suite de verificacion.'
+            : 'Codigo ejecutado en Pyodide WASM.',
           iconKey: 'check',
         });
+        onResolved?.();
       }
       if (execResult.plotsBase64.length > 0) setActiveTab('PLOTS');
       else if (execResult.unitTestReport) setActiveTab('AUDIT');
@@ -96,7 +115,7 @@ export function CodeLabWorkspace({ block }: { block: CodeLabBlock }) {
     } finally {
       setIsRunning(false);
     }
-  }, [block.unitTestCode, cartridge, code, ensureRuntime, pushToast, recordAttempt, syncVirtualFilesFromRuntime]);
+  }, [block.unitTestCode, cartridge, code, ensureRuntime, onResolved, pushToast, recordAttempt, syncVirtualFilesFromRuntime]);
 
   const handleTrace = useCallback(async () => {
     if (!cartridge) return;
@@ -107,10 +126,9 @@ export function CodeLabWorkspace({ block }: { block: CodeLabBlock }) {
       setLiveMemorySteps(steps);
       pushToast({
         title: 'Traza capturada',
-        description: `Se registraron ${steps.length} pasos de memoria. Abre el visualizador de Memoria.`,
+        description: `Se registraron ${steps.length} pasos de memoria en vivo.`,
         iconKey: 'footprints',
       });
-      usePlatformStore.setState({ studioTab: 'MEMORY' });
     } catch (err) {
       pushToast({
         title: 'Traza fallida',
@@ -128,12 +146,23 @@ export function CodeLabWorkspace({ block }: { block: CodeLabBlock }) {
 
   return (
     <div className="flex h-full flex-col bg-surface">
-      <div className="flex items-center justify-between border-b border-subtle px-3 py-2">
+      <div className="flex items-center justify-between gap-2 border-b border-subtle px-3 py-2">
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold text-primary">{block.title}</h3>
           <p className="truncate text-xs text-muted">{block.instructions}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => {
+              setCode(block.starterCode ?? '');
+              setResult(null);
+            }}
+            title="Restablecer codigo inicial"
+            className="rounded-md border border-subtle p-1.5 text-muted hover:text-primary"
+          >
+            <RotateCcw size={13} />
+          </button>
           <button
             type="button"
             onClick={handleRun}

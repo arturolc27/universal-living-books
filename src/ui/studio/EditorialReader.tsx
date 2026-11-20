@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSanitize from 'rehype-sanitize';
-import { Lightbulb, AlertTriangle, BookOpen, Bug, Youtube, Target, CheckCircle2 } from 'lucide-react';
+import { Lightbulb, AlertTriangle, BookOpen, Bug, Youtube, Target, CheckCircle2, Play } from 'lucide-react';
 import type { BookCartridge, GlossaryEntry, LessonBlock, ProseBlock, YouTubeRefBlock } from '../../types/cartridge.types';
 import { usePlatformStore } from '../../store/usePlatformStore';
 import { cn } from '../utils/cn';
@@ -29,10 +29,12 @@ function ProseRenderer({
   block,
   glossary,
   onTermClick,
+  onTryCode,
 }: {
   block: ProseBlock;
   glossary: Record<string, GlossaryEntry>;
   onTermClick: (entry: GlossaryEntry) => void;
+  onTryCode?: (code: string) => void;
 }) {
   const markdown = useMemo(() => preprocessGlossaryLinks(block.markdown), [block.markdown]);
   const callout = block.callout;
@@ -53,12 +55,29 @@ function ProseRenderer({
             ul: ({ children }) => <ul className="list-disc space-y-1 pl-5 text-sm text-primary">{children}</ul>,
             ol: ({ children }) => <ol className="list-decimal space-y-1 pl-5 text-sm text-primary">{children}</ol>,
             code: ({ children, className }) => {
-              const isBlock = Boolean(className?.includes('language-'));
+              const rawText = String(children).replace(/\n$/, '');
+              const isBlock = Boolean(className?.includes('language-')) || rawText.includes('\n');
               if (isBlock) {
                 return (
-                  <code className="code-font block overflow-x-auto rounded-lg border border-subtle bg-canvas p-3 text-xs text-accent">
-                    {children}
-                  </code>
+                  <div className="my-2 overflow-hidden rounded-lg border border-subtle bg-canvas">
+                    {onTryCode && (
+                      <div className="flex items-center justify-between border-b border-subtle/60 bg-surface/60 px-2.5 py-1">
+                        <span className="text-[10px] font-medium uppercase tracking-wider text-muted">
+                          Python
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => onTryCode(rawText)}
+                          className="flex items-center gap-1 rounded bg-accent/15 px-2 py-0.5 text-[10px] font-semibold text-accent hover:bg-accent/25"
+                        >
+                          <Play size={9} /> Probar en Python
+                        </button>
+                      </div>
+                    )}
+                    <code className="code-font block overflow-x-auto p-3 text-xs text-accent">
+                      {rawText}
+                    </code>
+                  </div>
                 );
               }
               return (
@@ -144,12 +163,14 @@ export function EditorialReader({
   unlockedBlockIndex,
   learningObjectives,
   takeaways,
+  onTryCode,
 }: {
   cartridge: BookCartridge;
   blocks: LessonBlock[];
   unlockedBlockIndex: number;
   learningObjectives?: string[];
   takeaways?: string[];
+  onTryCode?: (code: string) => void;
 }) {
   const setActiveGlossaryTerm = usePlatformStore((s) => s.setActiveGlossaryTerm);
 
@@ -157,10 +178,11 @@ export function EditorialReader({
     () => blocks.slice(0, Math.min(unlockedBlockIndex + 1, blocks.length)),
     [blocks, unlockedBlockIndex]
   );
+  const proseCount = visibleBlocks.filter((b) => b.type === 'PROSE' || b.type === 'YOUTUBE_REF').length;
   const isLessonEndReached = unlockedBlockIndex >= blocks.length - 1;
 
   return (
-    <div className="h-full overflow-y-auto p-4">
+    <div className="h-full overflow-y-auto p-4 sm:p-5">
       <div className="space-y-4">
         {learningObjectives && learningObjectives.length > 0 && (
           <div className="rounded-xl border border-accent/30 bg-accent/5 p-3">
@@ -186,6 +208,7 @@ export function EditorialReader({
                 block={block}
                 glossary={cartridge.glossary}
                 onTermClick={setActiveGlossaryTerm}
+                onTryCode={onTryCode}
               />
             );
           }
@@ -194,6 +217,12 @@ export function EditorialReader({
           }
           return null;
         })}
+
+        {proseCount === 0 && (
+          <div className="rounded-xl border border-subtle bg-surface/60 p-4 text-xs text-muted">
+            Completa el reto interactivo del panel derecho para desbloquear las notas y el siguiente concepto de esta leccion.
+          </div>
+        )}
 
         {isLessonEndReached && takeaways && takeaways.length > 0 && (
           <div className="rounded-xl border border-success/40 bg-success/5 p-3">

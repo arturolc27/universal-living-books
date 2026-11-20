@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Brain, CheckCircle2, XCircle, Lock, Unlock } from 'lucide-react';
+import { Brain, CheckCircle2, XCircle, Lock, Unlock, RotateCcw, ArrowRight } from 'lucide-react';
 import type { OutputPredictionBlock } from '../../types/cartridge.types';
 import { usePlatformStore } from '../../store/usePlatformStore';
 import { cn } from '../../ui/utils/cn';
@@ -43,17 +43,22 @@ export function OutputPredictionCard({
         description: 'Tu modelo mental coincide con el resultado real.',
         iconKey: 'check',
       });
-      onResolved?.();
     } else {
       if (block.linkedFlashcardId) {
         await flagPcLabFailure(block.linkedFlashcardId);
       }
       pushToast({
         title: 'Prediccion fallida',
-        description: 'La tarjeta vinculada se programo para repaso prioritario SM-2.',
+        description: 'Puedes reintentar o continuar al siguiente paso.',
         iconKey: 'error',
       });
     }
+  };
+
+  const handleRetry = () => {
+    setSelectedOption(null);
+    setSelectedType(null);
+    setRevealed(false);
   };
 
   return (
@@ -69,7 +74,7 @@ export function OutputPredictionCard({
 
       <div className="min-h-0 flex-1 overflow-auto p-3">
         <p className="mb-2 text-xs text-muted">{block.prompt}</p>
-        <pre className="code-font mb-3 rounded-md border border-subtle bg-canvas p-3 text-xs leading-relaxed text-primary">
+        <pre className="code-font mb-3 overflow-x-auto rounded-md border border-subtle bg-canvas p-3 text-xs leading-relaxed text-primary">
           {block.codeSnippet}
         </pre>
 
@@ -125,28 +130,49 @@ export function OutputPredictionCard({
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             className={cn(
-              'flex items-start gap-2 rounded-md border p-2 text-xs',
+              'flex items-start gap-2 rounded-md border p-2.5 text-xs',
               isCorrect ? 'border-success/40 bg-success/10 text-success' : 'border-danger/40 bg-danger/10 text-danger'
             )}
           >
-            {isCorrect ? <CheckCircle2 size={14} className="mt-0.5" /> : <XCircle size={14} className="mt-0.5" />}
+            {isCorrect ? <CheckCircle2 size={14} className="mt-0.5 shrink-0" /> : <XCircle size={14} className="mt-0.5 shrink-0" />}
             <span>{block.explanation}</span>
           </motion.div>
         )}
       </div>
 
-      {!revealed && (
-        <div className="border-t border-subtle p-3">
+      <div className="border-t border-subtle p-3">
+        {!revealed ? (
           <button
             type="button"
             onClick={handleReveal}
             disabled={!canReveal}
-            className="w-full rounded-md bg-accent py-2 text-xs font-semibold text-canvas disabled:opacity-40"
+            className="w-full rounded-lg bg-accent py-2 text-xs font-semibold text-canvas disabled:opacity-40"
           >
-            Verificar y Desbloquear
+            Verificar predicción
           </button>
-        </div>
-      )}
+        ) : (
+          <div className="flex gap-2">
+            {!isCorrect && (
+              <button
+                type="button"
+                onClick={handleRetry}
+                className="flex items-center justify-center gap-1.5 rounded-lg border border-subtle px-3 py-2 text-xs font-medium text-primary hover:border-accent/50"
+              >
+                <RotateCcw size={13} /> Reintentar
+              </button>
+            )}
+            {onResolved && (
+              <button
+                type="button"
+                onClick={onResolved}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent py-2 text-xs font-semibold text-canvas"
+              >
+                {isCorrect ? 'Siguiente paso' : 'Entendido, continuar'} <ArrowRight size={13} />
+              </button>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

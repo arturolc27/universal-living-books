@@ -186,7 +186,7 @@ export function renderBlockWidget(block: LessonBlock, options?: WidgetRenderOpti
         deviceMode === 'MOBILE' ? (
           <PcOnlyLabHandoffCard block={block} onResolved={options?.onResolved} />
         ) : (
-          <CodeLabWorkspace block={block} />
+          <CodeLabWorkspace block={block} onResolved={options?.onResolved} />
         );
       break;
     case 'AST_CHALLENGE':
@@ -194,7 +194,7 @@ export function renderBlockWidget(block: LessonBlock, options?: WidgetRenderOpti
         deviceMode === 'MOBILE' ? (
           <PcOnlyLabHandoffCard block={block} onResolved={options?.onResolved} />
         ) : (
-          <AstStructuralChallenge block={block} />
+          <AstStructuralChallenge block={block} onResolved={options?.onResolved} />
         );
       break;
     case 'OUTPUT_PREDICTION':

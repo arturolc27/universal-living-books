@@ -70,20 +70,35 @@ function postError(requestId: string, error: string): void {
 async function ensurePyodide(): Promise<PyodideInterface> {
   if (pyodide) return pyodide;
 
-  const importScriptsLike = (self as unknown as { importScripts?: (...urls: string[]) => void })
-    .importScripts;
-  if (typeof importScriptsLike === 'function') {
-    importScriptsLike(`${PYODIDE_CDN}pyodide.js`);
-  }
-
-  const loadPyodide = (
-    self as unknown as { loadPyodide: (opts: { indexURL: string }) => Promise<PyodideInterface> }
+  let loadPyodideFn = (
+    self as unknown as { loadPyodide?: (opts: { indexURL: string }) => Promise<PyodideInterface> }
   ).loadPyodide;
-  if (typeof loadPyodide !== 'function') {
-    throw new Error('No se pudo cargar loadPyodide desde el CDN de Pyodide.');
+
+  if (typeof loadPyodideFn !== 'function') {
+    try {
+      const mod = (await import(/* @vite-ignore */ `${PYODIDE_CDN}pyodide.mjs`)) as {
+        loadPyodide?: (opts: { indexURL: string }) => Promise<PyodideInterface>;
+      };
+      if (typeof mod.loadPyodide === 'function') {
+        loadPyodideFn = mod.loadPyodide;
+      }
+    } catch {
+      const importScriptsLike = (self as unknown as { importScripts?: (...urls: string[]) => void })
+        .importScripts;
+      if (typeof importScriptsLike === 'function') {
+        importScriptsLike(`${PYODIDE_CDN}pyodide.js`);
+        loadPyodideFn = (
+          self as unknown as { loadPyodide?: (opts: { indexURL: string }) => Promise<PyodideInterface> }
+        ).loadPyodide;
+      }
+    }
   }
 
-  pyodide = await loadPyodide({ indexURL: PYODIDE_CDN });
+  if (typeof loadPyodideFn !== 'function') {
+    throw new Error('No se pudo cargar Pyodide desde el CDN.');
+  }
+
+  pyodide = await loadPyodideFn({ indexURL: PYODIDE_CDN });
   return pyodide;
 }
 

@@ -35,14 +35,14 @@ export function VirtualFileDrawer() {
 
   return (
     <div className="flex h-full flex-col bg-surface">
-      <div className="flex items-center justify-between border-b border-subtle px-3 py-2">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted">
+      <div className="flex items-center justify-between gap-2 border-b border-subtle px-3 py-2">
+        <span className="truncate text-xs font-semibold uppercase tracking-wider text-muted">
           Virtual FS ({fileNames.length})
         </span>
         <button
           type="button"
           onClick={() => setIsCreating((v) => !v)}
-          className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-accent hover:bg-elevated"
+          className="flex shrink-0 items-center gap-1 rounded-md border border-subtle px-2 py-1 text-xs text-accent hover:bg-elevated"
         >
           <FilePlus2 size={13} /> Nuevo
         </button>

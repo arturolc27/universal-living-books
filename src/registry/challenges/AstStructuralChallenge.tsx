@@ -6,7 +6,13 @@ import { pythonRuntimeBridge } from '../../engine/pyodide/pythonRuntimeBridge';
 import { usePlatformStore } from '../../store/usePlatformStore';
 import { cn } from '../../ui/utils/cn';
 
-export function AstStructuralChallenge({ block }: { block: AstChallengeBlock }) {
+export function AstStructuralChallenge({
+  block,
+  onResolved,
+}: {
+  block: AstChallengeBlock;
+  onResolved?: () => void;
+}) {
   const activeBookId = usePlatformStore((s) => s.activeBookId);
   const cartridges = usePlatformStore((s) => s.cartridges);
   const virtualFiles = usePlatformStore((s) => s.virtualFiles);
@@ -17,12 +23,12 @@ export function AstStructuralChallenge({ block }: { block: AstChallengeBlock }) 
 
   const cartridge = activeBookId ? cartridges[activeBookId] : null;
 
-  const [code, setCode] = useState(block.starterCode);
+  const [code, setCode] = useState(block.starterCode ?? '');
   const [result, setResult] = useState<PythonExecutionResult | null>(null);
   const [isRunning, setIsRunning] = useState(false);
 
   useEffect(() => {
-    setCode(block.starterCode);
+    setCode(block.starterCode ?? '');
     setResult(null);
   }, [block.blockId, block.starterCode]);
 
@@ -37,12 +43,12 @@ export function AstStructuralChallenge({ block }: { block: AstChallengeBlock }) 
       );
       const execResult = await pythonRuntimeBridge.executeAndEvaluate(code, {
         astConstraints: block.astConstraints,
-        unitTestCode: block.unitTestCode,
+        unitTestCode: block.unitTestCode || undefined,
       });
       setResult(execResult);
 
       const astPassed = execResult.astReport?.passed ?? false;
-      const testsPassed = execResult.unitTestReport?.passed ?? false;
+      const testsPassed = execResult.unitTestReport ? execResult.unitTestReport.passed : execResult.ok;
       const fullyPassed = astPassed && testsPassed;
 
       await recordAttempt(fullyPassed);
@@ -53,6 +59,7 @@ export function AstStructuralChallenge({ block }: { block: AstChallengeBlock }) 
           description: 'Tu solucion cumple todas las reglas estructurales y pruebas.',
           iconKey: 'sparkles',
         });
+        onResolved?.();
       } else if (block.linkedFlashcardId) {
         await flagPcLabFailure(block.linkedFlashcardId);
       }
@@ -69,7 +76,7 @@ export function AstStructuralChallenge({ block }: { block: AstChallengeBlock }) 
     } finally {
       setIsRunning(false);
     }
-  }, [block.astConstraints, block.linkedFlashcardId, block.unitTestCode, cartridge, code, flagPcLabFailure, pushToast, recordAstMastery, recordAttempt, virtualFiles]);
+  }, [block.astConstraints, block.linkedFlashcardId, block.unitTestCode, cartridge, code, flagPcLabFailure, onResolved, pushToast, recordAstMastery, recordAttempt, virtualFiles]);
 
   const editorTheme = cartridge?.themeDNA.mode === 'light' ? 'light' : 'vs-dark';
 
@@ -101,18 +108,20 @@ export function AstStructuralChallenge({ block }: { block: AstChallengeBlock }) 
               Requiere: {node}
             </span>
           ))}
-          {(block.astConstraints.forbiddenNodeTypes ?? []).map((node) => (
+          {(block.astConstraints?.forbiddenNodeTypes ?? []).map((node) => (
             <span key={node} className="rounded-full bg-danger/15 px-2 py-0.5 text-[10px] font-medium text-danger">
               Prohibe: {node}
             </span>
           ))}
-          {(block.astConstraints.forbiddenCalls ?? []).map((call) => (
+          {(block.astConstraints?.forbiddenCalls ?? []).map((call) => (
             <span key={call} className="rounded-full bg-danger/15 px-2 py-0.5 text-[10px] font-medium text-danger">
               Prohibe: {call}()
             </span>
           ))}
         </div>
-        <p className="mt-1.5 text-[11px] italic text-muted">{block.astConstraints.customAstMessage}</p>
+        {block.astConstraints?.customAstMessage && (
+          <p className="mt-1.5 text-[11px] italic text-muted">{block.astConstraints.customAstMessage}</p>
+        )}
       </div>
 
       <div className="min-h-0 flex-1">

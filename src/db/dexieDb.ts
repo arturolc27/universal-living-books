@@ -87,6 +87,14 @@ export interface BookAssetRecord {
   updatedAt: number;
 }
 
+export interface LessonTranslationRecord {
+  bookId: string;
+  lessonId: string;
+  lang: 'es' | 'en';
+  translatedLesson: import('../types/cartridge.types').MicroLesson;
+  updatedAt: number;
+}
+
 export class LivingBooksDB extends Dexie {
   installedCartridges!: Table<InstalledCartridgeRecord, string>;
   lessonProgress!: Table<LessonProgressRecord, [string, string]>;
@@ -99,6 +107,7 @@ export class LivingBooksDB extends Dexie {
   memoryTraces!: Table<MemoryTraceRecord, string>;
   documentPages!: Table<DocumentPageRecord, [string, number]>;
   bookAssets!: Table<BookAssetRecord, [string, string]>;
+  lessonTranslations!: Table<LessonTranslationRecord, [string, string, string]>;
 
   constructor() {
     super('LivingBooksDB_v2');
@@ -120,6 +129,9 @@ export class LivingBooksDB extends Dexie {
     this.version(4).stores({
       documentPages: '[jobId+pageNumber], jobId, pageNumber',
       bookAssets: '[bookId+kind], bookId, kind, updatedAt',
+    });
+    this.version(5).stores({
+      lessonTranslations: '[bookId+lessonId+lang], bookId, lessonId, lang, updatedAt',
     });
 
     // Diagnostico: evita cuelgues silenciosos por bloqueos de version.

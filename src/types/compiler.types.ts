@@ -46,6 +46,7 @@ export interface CompilerJobConfig {
   dryRun: boolean;
   maxRetries: number;
   outputExpansionFactor: number;
+  targetLanguage?: 'es' | 'en';
 }
 
 export interface CompilationJob {

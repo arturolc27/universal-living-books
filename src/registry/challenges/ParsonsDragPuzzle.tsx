@@ -186,17 +186,28 @@ export function ParsonsDragPuzzle({
             )}
           >
             {result === 'CORRECT' ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
-            {result === 'CORRECT' ? 'Estructura correcta.' : 'Aun no es correcto. Ajusta orden e indentacion.'}
+            {result === 'CORRECT' ? '¡Orden e indentación correctos!' : 'Aun no es correcto. Ajusta orden e indentacion.'}
           </div>
         )}
-        <button
-          type="button"
-          onClick={validate}
-          disabled={placed.length === 0}
-          className="w-full rounded-md bg-accent py-2 text-xs font-semibold text-canvas disabled:opacity-40"
-        >
-          Validar Estructura AST
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={validate}
+            disabled={placed.length === 0}
+            className="flex-1 rounded-lg bg-accent py-2 text-xs font-semibold text-canvas disabled:opacity-40"
+          >
+            Comprobar orden
+          </button>
+          {onResolved && result !== 'PENDING' && (
+            <button
+              type="button"
+              onClick={onResolved}
+              className="rounded-lg border border-accent/50 bg-accent/15 px-3 py-2 text-xs font-semibold text-accent"
+            >
+              Siguiente paso →
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -193,14 +193,20 @@ export function coerceChaptersIndex(
 ): ChapterIndexEntry[] {
   if (!Array.isArray(raw)) return [];
   const entries: ChapterIndexEntry[] = [];
+  const seenChapters = new Set<number>();
   const effectivePages = Math.max(1, totalPages || Math.round(totalChars / 2200) || 100);
   const charsPerPage = Math.max(300, totalChars / effectivePages);
 
   for (const item of raw) {
     if (!item || typeof item !== 'object') continue;
     const rec = item as Record<string, unknown>;
-    const chapterNumber = Number(rec.chapterNumber);
+    let chapterNumber = Number(rec.chapterNumber);
     if (!Number.isFinite(chapterNumber)) continue;
+    chapterNumber = Math.max(1, Math.trunc(chapterNumber));
+    while (seenChapters.has(chapterNumber)) {
+      chapterNumber += 1;
+    }
+    seenChapters.add(chapterNumber);
     const startPage = Number.isFinite(Number(rec.startPage)) ? Number(rec.startPage) : 0;
     const endPage = Number.isFinite(Number(rec.endPage)) ? Number(rec.endPage) : startPage;
     const pageSpan = Math.max(1, endPage - startPage + 1);

@@ -4,7 +4,8 @@ import type {
   PythonExecutionResult,
 } from '../../types/cartridge.types';
 
-const WATCHDOG_TIMEOUT_MS = 3000;
+const EXECUTION_TIMEOUT_MS = 5000;
+const INIT_TIMEOUT_MS = 60000;
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -69,7 +70,7 @@ export class PythonRuntimeBridge {
     this.initializedBookId = null;
   }
 
-  private dispatch<T>(message: Record<string, unknown>): Promise<T> {
+  private dispatch<T>(message: Record<string, unknown>, timeoutMs = EXECUTION_TIMEOUT_MS): Promise<T> {
     const worker = this.ensureWorker();
     const requestId = `req-${++this.requestCounter}-${Date.now()}`;
 
@@ -79,10 +80,10 @@ export class PythonRuntimeBridge {
         this.terminateAndReset();
         reject(
           new Error(
-            `Tiempo de ejecucion excedido (${WATCHDOG_TIMEOUT_MS} ms). Posible bucle infinito detectado; el runtime de Python fue reiniciado.`
+            `Tiempo de ejecucion excedido (${timeoutMs} ms). El runtime de Python fue reiniciado.`
           )
         );
-      }, WATCHDOG_TIMEOUT_MS);
+      }, timeoutMs);
 
       this.pending.set(requestId, {
         resolve: resolve as (value: unknown) => void,
@@ -107,11 +108,14 @@ export class PythonRuntimeBridge {
     const result = await this.dispatch<{
       installedPackages: string[];
       virtualFiles: Record<string, string>;
-    }>({
-      type: 'INIT_BOOK_RUNTIME',
-      packages,
-      virtualFiles,
-    });
+    }>(
+      {
+        type: 'INIT_BOOK_RUNTIME',
+        packages,
+        virtualFiles,
+      },
+      INIT_TIMEOUT_MS
+    );
 
     this.initializedBookId = bookId;
     this.installedPackages = result.installedPackages;

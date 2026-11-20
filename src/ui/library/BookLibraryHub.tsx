@@ -1,19 +1,31 @@
 import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { BookOpen, Plus, Package, Layers, Sparkles, Play, Clock, Zap, Wand2 } from 'lucide-react';
+import { BookOpen, Plus, Package, Layers, Sparkles, Play, Clock, Zap, Wand2, Download, Trash2 } from 'lucide-react';
 import { usePlatformStore } from '../../store/usePlatformStore';
 import { CartridgeImporterModal } from './CartridgeImporterModal';
 import { CompilerStudioModal } from './CompilerStudioModal';
 import { cn } from '../utils/cn';
 import { isSafeCoverImageUrl } from '../utils/sanitize';
+import type { BookCartridge } from '../../types/cartridge.types';
 
 export function BookLibraryHub() {
   const cartridges = usePlatformStore((s) => s.cartridges);
   const openBook = usePlatformStore((s) => s.openBook);
+  const deleteBook = usePlatformStore((s) => s.deleteBook);
   const lessonProgressMap = usePlatformStore((s) => s.lessonProgressMap);
   const srsStates = usePlatformStore((s) => s.srsStates);
   const [showImporter, setShowImporter] = useState(false);
   const [showCompiler, setShowCompiler] = useState(false);
+
+  const handleExportBook = (book: BookCartridge) => {
+    const blob = new Blob([JSON.stringify(book, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${book.bookId || 'living-book'}.ulb.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const books = useMemo(() => Object.values(cartridges), [cartridges]);
 
@@ -145,14 +157,21 @@ export function BookLibraryHub() {
             const progress = progressFor(book.bookId);
             const due = dueCardsFor(book.bookId);
             return (
-              <motion.button
+              <motion.div
                 key={book.bookId}
-                type="button"
+                role="button"
+                tabIndex={0}
                 initial={{ opacity: 0, y: 14 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.35, delay: idx * 0.06 }}
                 onClick={() => openBook(book.bookId)}
-                className="surface-card group flex flex-col p-4 text-left"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    openBook(book.bookId);
+                  }
+                }}
+                className="surface-card group flex cursor-pointer flex-col p-4 text-left"
               >
                 <div
                   className="mb-3 h-1.5 w-full rounded-full"
@@ -204,15 +223,37 @@ export function BookLibraryHub() {
                   />
                 </div>
 
-                <div className="mt-auto flex items-center justify-between text-[10px] text-muted">
+                <div className="mt-auto flex items-center justify-between gap-2 text-[10px] text-muted">
                   <span className="flex items-center gap-1">
                     <Layers size={10} /> {book.chapters.length} caps
                   </span>
                   <span className={cn('flex items-center gap-1', due > 0 && 'text-secondary')}>
                     <Package size={10} /> {due} repasos
                   </span>
+                  <div className="ml-auto flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      onClick={() => handleExportBook(book)}
+                      className="rounded-md border border-subtle bg-canvas p-1.5 text-muted transition-colors hover:border-accent hover:text-accent"
+                      title="Exportar cartucho (.ulb.json)"
+                    >
+                      <Download size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm(`¿Eliminar "${book.metadata.title}" de tu biblioteca local?`)) {
+                          void deleteBook(book.bookId);
+                        }
+                      }}
+                      className="rounded-md border border-subtle bg-canvas p-1.5 text-muted transition-colors hover:border-danger hover:text-danger"
+                      title="Eliminar libro"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
                 </div>
-              </motion.button>
+              </motion.div>
             );
           })}
 
