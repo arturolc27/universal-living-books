@@ -140,8 +140,9 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
       concurrencyLimit: isMobile ? 2 : 4,
       dryRun: false,
       maxRetries: 3,
-      outputExpansionFactor: 1.45,
+      outputExpansionFactor: 1.85,
       targetLanguage: 'es',
+      detailLevel: 'BALANCED',
     };
   });
   const [localLog, setLocalLog] = useState<string[]>([]);
@@ -715,6 +716,24 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
                     >
                       <option value="es">Español (Recomendado — luego alterna a EN bajo demanda)</option>
                       <option value="en">Inglés / Original (luego alterna a ES bajo demanda)</option>
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted">
+                      Profundidad y equilibrio del contenido
+                    </span>
+                    <select
+                      value={config.detailLevel || 'BALANCED'}
+                      onChange={(e) => {
+                        const level = e.target.value as 'CONCISE' | 'BALANCED' | 'DEEP';
+                        const expansion = level === 'DEEP' ? 2.35 : level === 'CONCISE' ? 1.25 : 1.85;
+                        setConfig((c) => ({ ...c, detailLevel: level, outputExpansionFactor: expansion }));
+                      }}
+                      className="w-full rounded-lg border border-subtle bg-canvas px-3 py-2 text-xs text-primary outline-none focus:border-accent"
+                    >
+                      <option value="BALANCED">Equilibrado (Recomendado — explicación completa + pasajes clave)</option>
+                      <option value="DEEP">Detallado (Máxima fidelidad técnica y profundidad por tema)</option>
+                      <option value="CONCISE">Ágil (Síntesis directa para repaso rápido)</option>
                     </select>
                   </label>
                   <label className="block">

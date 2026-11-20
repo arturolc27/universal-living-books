@@ -39,6 +39,8 @@ export interface SectionTaskState {
 
 export type JobStatus = 'IDLE' | 'RUNNING' | 'PAUSED' | 'COMPLETED' | 'CANCELLED' | 'FAILED';
 
+export type CompilationDetailLevel = 'CONCISE' | 'BALANCED' | 'DEEP';
+
 export interface CompilerJobConfig {
   fastModel: string;
   reasoningModel: string;
@@ -47,6 +49,7 @@ export interface CompilerJobConfig {
   maxRetries: number;
   outputExpansionFactor: number;
   targetLanguage?: 'es' | 'en';
+  detailLevel?: CompilationDetailLevel;
 }
 
 export interface CompilationJob {

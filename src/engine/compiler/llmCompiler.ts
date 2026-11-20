@@ -1,23 +1,35 @@
 import type { BookCartridge, MicroLesson } from '../../types/cartridge.types';
+import type { CompilationDetailLevel } from '../../types/compiler.types';
 import { sanitizeLesson } from './lessonSanitizer';
 import type { SectionChunk, TracedSnippet } from './semanticChunker';
 
-export function buildCompilerSystemInstruction(targetLanguage: 'es' | 'en' = 'es'): string {
+export function buildCompilerSystemInstruction(
+  targetLanguage: 'es' | 'en' = 'es',
+  detailLevel: CompilationDetailLevel = 'BALANCED'
+): string {
   const langDirective =
     targetLanguage === 'es'
       ? 'IDIOMA: Redacta titulos, prosa, explicaciones, preguntas y flashcards en ESPANOL claro (manteniendo codigo Python e identificadores intactos).'
       : 'LANGUAGE: Write titles, prose, explanations, prompts, and flashcards in the ORIGINAL ENGLISH of the source text (keep Python code intact).';
 
+  const depthDirective =
+    detailLevel === 'DEEP'
+      ? 'PROFUNDIDAD (DETALLADA): Redacta de 3 a 4 bloques "PROSE" completos (600 a 950 palabras en total). Cubre cada concepto, caso borde, matiz tecnico, ejemplo comentado y regla practica presente en "cleanText" sin omitir detalles relevantes.'
+      : detailLevel === 'CONCISE'
+        ? 'PROFUNDIDAD (AGIL): Redacta de 1 a 2 bloques "PROSE" claros y directos (180 a 280 palabras en total) enfocados en las ideas esenciales y ejemplos clave.'
+        : 'PROFUNDIDAD (EQUILIBRADA - RECOMENDADA): Redacta de 2 a 3 bloques "PROSE" pedagogicos bien estructurados (350 a 650 palabras en total). NO hagas un resumen superficial ni recortes conceptos clave del libro, pero tampoco copies relleno repetitivo: sintetiza con fidelidad las explicaciones, el "por que" tecnico, reglas, advertencias y ejemplos reales de "cleanText" usando subtitulos ##, listas claras y bloques ```python``` comentados.';
+
   return `Eres un Disenador Instruccional y Compilador EdTech de alta precision.
-Tu mision NO es reemplazar el libro: el texto integro del libro ("cleanText") ya se muestra al estudiante. Tu trabajo es COMPLEMENTAR y POTENCIAR esta seccion del libro con interactividad real.
+Tu mision es lograr el EQUILIBRIO PERFECTO entre el libro y el aprendizaje activo: destilando y ensenando con profundidad real todo lo valioso de esta seccion ("cleanText") mientras el estudiante tambien tiene acceso a los pasajes originales del libro.
 
 ${langDirective}
+${depthDirective}
 
 REGLAS ESTRICTAS DE FORMATO:
 1. Emite EXCLUSIVAMENTE un objeto JSON valido (sin markdown ni texto fuera del JSON).
 2. Usa SIEMPRE los nombres de campo exactos definidos abajo.
-3. Toda MicroLesson DEBE comenzar con al menos 1 o 2 bloques "PROSE" de guia editorial (120 a 220 palabras) que contextualicen los conceptos clave de "cleanText", expliquen trampas comunes con callouts y marquen terminos tecnicos en [[termino]].
-4. Todo ejercicio (OUTPUT_PREDICTION, INTERACTIVE_VISUALIZER, SYNTAX_CLOZE, PARSONS_PROBLEM, CODE_LAB) DEBE derivarse directamente de los ejemplos, variables y temas reales de "cleanText" (NUNCA inventes ejercicios genericos desconectados del libro ni dejes codigo vacio).
+3. Incluye al menos 2 bloques "PROSE" (salvo modo agíl) con explicacion clara, ejemplos en \`\`\`python ... \`\`\`, callouts estrategicos (TIP, WARNING, ERROR_TRAP, BOOK_NOTE) rescatando matices del autor y terminos tecnicos marcados en [[termino]].
+4. Incluye de 3 a 5 ejercicios interactivos variados (OUTPUT_PREDICTION, INTERACTIVE_VISUALIZER, SYNTAX_CLOZE, PARSONS_PROBLEM, QUICK_QUIZ, CODE_LAB, FLASHCARD) derivados directamente de los ejemplos, variables y temas reales de "cleanText" (NUNCA inventes ejercicios genericos ni dejes codigo vacio).
 5. Usa "sectionTitle" recibido como titulo real de la leccion (o traduccion fiel al idioma elegido).
 
 CONTRATO EXACTO DE CAMPOS POR TIPO DE BLOQUE:
@@ -42,7 +54,7 @@ CAMPOS RAIZ OBLIGATORIOS DE MicroLesson:
 { "lessonId": "...", "order": 1, "title": "...", "estimatedMinutes": 8, "learningObjectives": ["Objetivo 1", "Objetivo 2"], "takeaways": ["Idea clave 1"], "blocks": [...], "extractedGlossary": { "termino": { "term": "termino", "definition": "...", "chapterIntroduced": 1 } } }`;
 }
 
-export const COMPILER_SYSTEM_INSTRUCTION = buildCompilerSystemInstruction('es');
+export const COMPILER_SYSTEM_INSTRUCTION = buildCompilerSystemInstruction('es', 'BALANCED');
 
 export const MICROLESSON_RESPONSE_SCHEMA = {
   type: 'object',

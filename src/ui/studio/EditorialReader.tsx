@@ -224,17 +224,48 @@ export function EditorialReader({
 }) {
   const setActiveGlossaryTerm = usePlatformStore((s) => s.setActiveGlossaryTerm);
   const [readerTab, setReaderTab] = useState<ReaderTab>('COMBINED');
+  const [expandedForSource, setExpandedForSource] = useState<string | null>(null);
+  const expandFullBookPassage = Boolean(sourceBookMarkdown && expandedForSource === sourceBookMarkdown);
+  const setExpandFullBookPassage = (next: boolean | ((prev: boolean) => boolean)) => {
+    const resolved = typeof next === 'function' ? next(expandFullBookPassage) : next;
+    setExpandedForSource(resolved && sourceBookMarkdown ? sourceBookMarkdown : null);
+  };
 
-  // Siempre mostrar al menos los bloques PROSE/YOUTUBE introductorios desde el Paso 1
+  // Mostrar todos los bloques PROSE/YOUTUBE introductorios previos al primer reto desde el Paso 1
   const visibleBlocks = useMemo(() => {
-    const firstProseIdx = blocks.findIndex((b) => b.type === 'PROSE' || b.type === 'YOUTUBE_REF');
-    const minReveal = firstProseIdx >= 0 ? Math.max(unlockedBlockIndex, firstProseIdx) : unlockedBlockIndex;
+    const firstInteractiveIdx = blocks.findIndex(
+      (b) => b.type !== 'PROSE' && b.type !== 'YOUTUBE_REF' && b.type !== 'FLASHCARD'
+    );
+    const introEnd = firstInteractiveIdx > 0 ? firstInteractiveIdx - 1 : blocks.length - 1;
+    const minReveal = Math.max(unlockedBlockIndex, introEnd);
     return blocks.slice(0, Math.min(minReveal + 1, blocks.length));
   }, [blocks, unlockedBlockIndex]);
 
   const proseBlocks = visibleBlocks.filter((b) => b.type === 'PROSE' || b.type === 'YOUTUBE_REF');
   const isLessonEndReached = unlockedBlockIndex >= blocks.length - 1;
   const hasBookSource = Boolean(sourceBookMarkdown && sourceBookMarkdown.trim().length > 0);
+
+  const { excerptMarkdown, isBookTruncated } = useMemo(() => {
+    if (!sourceBookMarkdown) return { excerptMarkdown: '', isBookTruncated: false };
+    const PREVIEW_LIMIT = 1800;
+    if (sourceBookMarkdown.length <= PREVIEW_LIMIT + 350) {
+      return { excerptMarkdown: sourceBookMarkdown, isBookTruncated: false };
+    }
+    let cut = sourceBookMarkdown.lastIndexOf('\n\n', PREVIEW_LIMIT);
+    if (cut < PREVIEW_LIMIT * 0.5) cut = PREVIEW_LIMIT;
+    let slice = sourceBookMarkdown.slice(0, cut).trim();
+    // No dejar una cerca de codigo ``` abierta en el extracto
+    if ((slice.match(/```/g) ?? []).length % 2 === 1) {
+      const nextClose = sourceBookMarkdown.indexOf('```', cut);
+      if (nextClose !== -1 && nextClose < cut + 1200) {
+        slice = sourceBookMarkdown.slice(0, nextClose + 3).trim();
+      } else {
+        const lastOpen = slice.lastIndexOf('```');
+        if (lastOpen > 0) slice = slice.slice(0, lastOpen).trim();
+      }
+    }
+    return { excerptMarkdown: slice, isBookTruncated: true };
+  }, [sourceBookMarkdown]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -310,25 +341,54 @@ export function EditorialReader({
             </div>
           )}
 
-          {/* Texto Real del Libro Original */}
+          {/* Texto Real del Libro Original (curado en Libro + Guia; integro en Libro Original) */}
           {(readerTab === 'COMBINED' || readerTab === 'BOOK') && (
             <div className="rounded-xl border border-subtle bg-surface/40 p-4">
-              <div className="mb-3 flex items-center justify-between border-b border-subtle pb-2">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-subtle pb-2">
                 <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-secondary">
-                  <BookText size={13} /> Texto del Libro Original
+                  <BookText size={13} />{' '}
+                  {readerTab === 'BOOK' ? 'Texto Íntegro del Libro' : 'Pasaje del Libro Original'}
                 </span>
-                {sourcePageRange && (
-                  <span className="text-[10px] text-muted">{sourcePageRange}</span>
-                )}
+                <div className="flex items-center gap-2">
+                  {sourcePageRange && (
+                    <span className="text-[10px] text-muted">{sourcePageRange}</span>
+                  )}
+                  {readerTab === 'COMBINED' && isBookTruncated && (
+                    <button
+                      type="button"
+                      onClick={() => setExpandFullBookPassage((v) => !v)}
+                      className="rounded-md border border-accent/40 bg-accent/10 px-2 py-0.5 text-[10px] font-semibold text-accent hover:bg-accent/20"
+                    >
+                      {expandFullBookPassage ? 'Mostrar extracto clave' : 'Ver pasaje completo'}
+                    </button>
+                  )}
+                </div>
               </div>
 
               {hasBookSource && sourceBookMarkdown ? (
-                <RichMarkdown
-                  content={sourceBookMarkdown}
-                  glossary={cartridge.glossary}
-                  onTermClick={setActiveGlossaryTerm}
-                  onTryCode={onTryCode}
-                />
+                <>
+                  <RichMarkdown
+                    content={
+                      readerTab === 'BOOK' || expandFullBookPassage
+                        ? sourceBookMarkdown
+                        : excerptMarkdown
+                    }
+                    glossary={cartridge.glossary}
+                    onTermClick={setActiveGlossaryTerm}
+                    onTryCode={onTryCode}
+                  />
+                  {readerTab === 'COMBINED' && isBookTruncated && !expandFullBookPassage && (
+                    <div className="mt-3 flex justify-center border-t border-subtle/60 pt-3">
+                      <button
+                        type="button"
+                        onClick={() => setExpandFullBookPassage(true)}
+                        className="rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 text-[11px] font-semibold text-accent hover:bg-accent/20"
+                      >
+                        Seguir leyendo sección completa del libro...
+                      </button>
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="space-y-2 text-xs text-muted">
                   <p>

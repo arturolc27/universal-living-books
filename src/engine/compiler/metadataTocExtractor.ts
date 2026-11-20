@@ -572,7 +572,7 @@ export async function extractMetadataAndToc(
 // --- SEGMENTADOR ROBUSTO BASADO EN EL INDICE DETECTADO ---
 
 const MIN_SECTION_CHARS = 200;
-const MAX_SECTION_CHARS = 9000;
+const MAX_SECTION_CHARS = 14000;
 const MIN_MICRO_LESSONS = 4;
 const MAX_MICRO_LESSONS = 8;
 
@@ -722,24 +722,35 @@ export function splitChapterIntoMicroLessons(
   const cleanBody = cleanText(body);
   if (cleanBody.length < MIN_SECTION_CHARS) return [];
 
-  const desired = Math.min(MAX_MICRO_LESSONS, Math.max(MIN_MICRO_LESSONS, targetCount));
+  const dynamicMax = cleanBody.length > 48_000 ? 12 : MAX_MICRO_LESSONS;
+  const desired = Math.min(dynamicMax, Math.max(MIN_MICRO_LESSONS, targetCount));
   const headings = findSubHeadings(cleanBody);
+
+  const sliceAtCleanBoundary = (str: string, limit: number): string => {
+    if (str.length <= limit) return str;
+    const paraBreak = str.lastIndexOf('\n\n', limit);
+    if (paraBreak > limit * 0.65) return str.slice(0, paraBreak).trim();
+    const lineBreak = str.lastIndexOf('\n', limit);
+    if (lineBreak > limit * 0.75) return str.slice(0, lineBreak).trim();
+    return str.slice(0, limit).trim();
+  };
 
   const chunks: SectionChunk[] = [];
   const pushChunk = (title: string, text: string, index: number) => {
     const trimmed = text.trim();
     if (trimmed.length < MIN_SECTION_CHARS) return;
+    const bounded = sliceAtCleanBoundary(trimmed, MAX_SECTION_CHARS);
     chunks.push({
       sectionId: `ch${chapterNumber}-sec${index}`,
       chapterNumber,
       chapterTitle,
       sectionTitle: title,
-      text: trimmed.slice(0, MAX_SECTION_CHARS),
-      codeSnippets: extractCodeSnippets(trimmed),
+      text: bounded,
+      codeSnippets: extractCodeSnippets(bounded),
     });
   };
 
-  if (headings.length >= MIN_MICRO_LESSONS && headings.length <= MAX_MICRO_LESSONS) {
+  if (headings.length >= MIN_MICRO_LESSONS && headings.length <= dynamicMax) {
     for (let i = 0; i < headings.length; i += 1) {
       // La primera leccion incluye la introduccion previa al primer subtitulo.
       const start = i === 0 ? 0 : headings[i].index;
@@ -749,7 +760,11 @@ export function splitChapterIntoMicroLessons(
     return chunks;
   }
 
-  const groups = splitByParagraphs(cleanBody, desired);
+  const effectiveTarget = Math.min(
+    dynamicMax,
+    Math.max(desired, Math.ceil(cleanBody.length / MAX_SECTION_CHARS))
+  );
+  const groups = splitByParagraphs(cleanBody, effectiveTarget);
   groups.forEach((group, i) => {
     const firstLine = group.split('\n').find((l) => l.trim().length > 0 && !/^-{2,}\s*page\s+\d+/i.test(l.trim())) ?? '';
     const title = firstLine.trim().slice(0, 70) || `${chapterTitle} (${i + 1})`;

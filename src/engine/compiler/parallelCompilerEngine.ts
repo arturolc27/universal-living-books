@@ -328,7 +328,8 @@ export class ParallelBookCompiler {
     }
 
     const targetLanguage = this.job.config.targetLanguage ?? 'es';
-    const sysInstruction = buildCompilerSystemInstruction(targetLanguage);
+    const detailLevel = this.job.config.detailLevel ?? 'BALANCED';
+    const sysInstruction = buildCompilerSystemInstruction(targetLanguage, detailLevel);
     const relevantTraces = this.traces.filter((t) => t.sectionId === chunk.sectionId);
     const userPayload = JSON.stringify({
       sectionId: chunk.sectionId,

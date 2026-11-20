@@ -44,9 +44,11 @@ import {
   sanitizeBlock,
   sanitizeLesson,
 } from './engine/compiler/lessonSanitizer';
+import { buildCompilerSystemInstruction } from './engine/compiler/llmCompiler';
 import {
   coerceChaptersIndex,
   segmentBookByIndex,
+  splitChapterIntoMicroLessons,
 } from './engine/compiler/metadataTocExtractor';
 import { usePlatformStore } from './store/usePlatformStore';
 import type { BookCartridge } from './types/cartridge.types';
@@ -282,6 +284,25 @@ describe('Compiled book resilience & E2E opening flow', () => {
     expect(chunks[0].text).not.toContain('....... 4');
     expect(chunks[1].text).toContain('Functions encapsulate reusable logic');
     expect(chunks[1].text).not.toContain('....... 8');
+  });
+
+  it('supports BALANCED/DEEP/CONCISE instruction depth and preserves >9000-char sections on large chapters', () => {
+    const balancedPrompt = buildCompilerSystemInstruction('es', 'BALANCED');
+    const deepPrompt = buildCompilerSystemInstruction('es', 'DEEP');
+    const concisePrompt = buildCompilerSystemInstruction('es', 'CONCISE');
+
+    expect(balancedPrompt).toContain('350 a 650 palabras');
+    expect(deepPrompt).toContain('600 a 950 palabras');
+    expect(concisePrompt).toContain('180 a 280 palabras');
+
+    const bigBody = Array.from(
+      { length: 60 },
+      (_, idx) => `Párrafo ${idx + 1}: ` + 'Python estructura módulos y clases limpias. '.repeat(22)
+    ).join('\n\n');
+
+    const chunks = splitChapterIntoMicroLessons(bigBody, 1, 'Capítulo Extenso', 6);
+    expect(chunks.length).toBeGreaterThanOrEqual(4);
+    expect(chunks[0].text.length).toBeGreaterThan(9000);
   });
 });
 
