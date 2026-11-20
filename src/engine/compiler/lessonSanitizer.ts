@@ -277,6 +277,7 @@ export function formatBookSourceMarkdown(rawText: string): {
   const lines = trimmed.split(/\r?\n/);
   const out: string[] = [];
   let inCode = false;
+  let inFence = false;
   let codeLines: string[] = [];
 
   const flushCode = () => {
@@ -287,6 +288,17 @@ export function formatBookSourceMarkdown(rawText: string): {
   };
 
   for (const rawLine of lines) {
+    if (rawLine.trim().startsWith('```')) {
+      flushCode();
+      inFence = !inFence;
+      out.push(rawLine);
+      continue;
+    }
+    if (inFence) {
+      out.push(rawLine);
+      continue;
+    }
+
     const pageMatch = rawLine.match(/^\s*-{2,}\s*(?:page|pagina|pág\.?)\s*(\d+)\s*-{2,}\s*$/i);
     if (pageMatch) {
       flushCode();

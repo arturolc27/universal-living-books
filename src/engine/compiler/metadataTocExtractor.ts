@@ -1,6 +1,6 @@
 import type { ThemeDNA } from '../../types/cartridge.types';
 import type { BookMetadataDraft, ChapterIndexEntry } from '../../types/compiler.types';
-import type { BookSourceNativeMetadata } from './bookSourceAdapter';
+import type { BookSourceNativeMetadata, NativeChapterEntry } from './bookSourceAdapter';
 import { cleanText, extractCodeSnippets, type SectionChunk } from './semanticChunker';
 
 /**
@@ -82,6 +82,8 @@ export interface TocExtractionOptions {
   coverImageDataUrl?: string;
   /** Metadatos nativos extraidos de EPUB/PDF para usar como respaldo prioritario. */
   nativeMetadata?: BookSourceNativeMetadata;
+  /** Indice nativo extraido del TOC/NCX de un EPUB. */
+  nativeChapters?: NativeChapterEntry[];
   /** Conteo real de paginas/capitulos extraido del archivo fuente. */
   totalPages?: number;
   onLog?: (line: string) => void;
@@ -109,8 +111,8 @@ const PAGE_MARKER_PATTERN = /(?:^|\n)\s*(?:-{2,}\s*)?(?:page|pagina|pág\.?)\s*(
 
 /**
  * Extrae unicamente el front-matter (portada, creditos y TOC) del texto crudo.
- * Si el texto contiene marcadores de pagina (`--- page N ---`), respeta el
- * limite de paginas; en caso contrario corta por numero de caracteres.
+ * Si el texto contiene marcadores de pagina (`--- page N ---`), respeta tanto el
+ * limite de paginas como `maxChars` para no saturar el contexto en EPUBs grandes.
  */
 export function extractFrontMatter(
   rawText: string,
@@ -125,7 +127,7 @@ export function extractFrontMatter(
     if (matches.length > 0) {
       const cutoff = matches.find((m) => Number(m[1]) > maxPages);
       if (cutoff && cutoff.index !== undefined) {
-        return rawText.slice(0, cutoff.index);
+        return rawText.slice(0, Math.min(cutoff.index, maxChars));
       }
     }
   }
@@ -228,12 +230,27 @@ export function coerceChaptersIndex(
   return entries.sort((a, b) => a.chapterNumber - b.chapterNumber);
 }
 
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 45000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(`Tiempo de espera agotado (${Math.round(timeoutMs / 1000)}s) al consultar el LLM.`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function callOpenRouter(
   credentials: TocExtractorCredentials,
   frontMatter: string
 ): Promise<string> {
   const attempt = async (withJsonFormat: boolean): Promise<string> => {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const response = await fetchWithTimeout('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -271,7 +288,7 @@ async function callGemini(
   frontMatter: string
 ): Promise<string> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${credentials.model}:generateContent?key=${credentials.geminiApiKey}`;
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -298,7 +315,7 @@ async function callOllama(
   frontMatter: string
 ): Promise<string> {
   const base = credentials.ollamaBaseUrl || 'http://localhost:11434';
-  const response = await fetch(`${base}/api/chat`, {
+  const response = await fetchWithTimeout(`${base}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -530,7 +547,17 @@ export async function extractMetadataAndToc(
   if (options.coverImageDataUrl) metadata.coverImageDataUrl = options.coverImageDataUrl;
 
   const effectiveTotalPages = metadata.totalPages || detectedPages;
-  let chaptersIndex = root ? coerceChaptersIndex(root.chaptersIndex, totalChars, effectiveTotalPages) : [];
+  let chaptersIndex =
+    options.nativeChapters && options.nativeChapters.length >= 2
+      ? coerceChaptersIndex(options.nativeChapters, totalChars, effectiveTotalPages)
+      : root
+        ? coerceChaptersIndex(root.chaptersIndex, totalChars, effectiveTotalPages)
+        : [];
+  if (options.nativeChapters && options.nativeChapters.length >= 2) {
+    options.onLog?.(
+      `Fase 0: usando indice nativo del EPUB (${chaptersIndex.length} capitulos con paginas exactas).`
+    );
+  }
   if (chaptersIndex.length === 0) {
     // Si el archivo es Markdown sin front-matter de TOC, escanear encabezados sobre mas texto
     const scanSample = rawText.length > frontMatter.length ? rawText.slice(0, 120_000) : frontMatter;
@@ -752,15 +779,17 @@ export function segmentBookByIndex(
     ? new Set(options.selectedChapterNumbers)
     : null;
 
+  const ordered = [...chaptersIndex].sort((a, b) => a.chapterNumber - b.chapterNumber);
   const pageMarkers = findPageMarkerOffsets(text);
-  // Si el libro tiene mas de 20 paginas, el TOC suele vivir en las primeras ~12 paginas
+  // Si el libro tiene mas de 20 paginas, el TOC suele vivir en las primeras ~12 paginas,
+  // pero nunca saltamos mas alla del inicio declarado del primer capitulo (EPUBs).
   let tocCutoffIndex = 0;
   if (pageMarkers.length >= 20) {
-    const skipPages = Math.min(12, Math.floor(pageMarkers.length * 0.12));
-    tocCutoffIndex = pageMarkers[skipPages]?.index ?? 0;
+    const baseSkip = Math.min(12, Math.floor(pageMarkers.length * 0.12));
+    const firstStart = ordered[0]?.startPage ?? 0;
+    const safeSkip = firstStart > 2 ? Math.min(baseSkip, firstStart - 2) : baseSkip;
+    tocCutoffIndex = safeSkip > 0 ? (pageMarkers[safeSkip]?.index ?? 0) : 0;
   }
-
-  const ordered = [...chaptersIndex].sort((a, b) => a.chapterNumber - b.chapterNumber);
 
   // Calibrar pageOffset usando el primer capitulo localizado por titulo
   let calibratedPageOffset = 0;

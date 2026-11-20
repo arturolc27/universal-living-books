@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { livingBooksDb } from '../../db/dexieDb';
 import { usePlatformStore } from '../../store/usePlatformStore';
 import type { BookCartridge } from '../../types/cartridge.types';
 import type {
@@ -74,6 +75,8 @@ export interface InterruptedCompilationJob {
   bookId: string;
   metadata: BookMetadataDraft;
   chunks: SectionChunk[];
+  totalChunks?: number;
+  storedInIdb?: boolean;
   config: CompilerJobConfig;
   completedSectionIds: string[];
   estimatedCostFallback: number;
@@ -81,13 +84,83 @@ export interface InterruptedCompilationJob {
 }
 
 const PENDING_JOB_KEY = 'ulb_pending_compilation_job';
+const IDB_PENDING_JOB_ID = '__pending_compilation_job__';
 
 function savePendingJob(job: InterruptedCompilationJob): void {
+  const fullJson = JSON.stringify(job);
+  void livingBooksDb.documentPages
+    .put({ jobId: IDB_PENDING_JOB_ID, pageNumber: 0, text: fullJson })
+    .catch(() => {});
+
   if (typeof localStorage === 'undefined') return;
   try {
-    localStorage.setItem(PENDING_JOB_KEY, JSON.stringify(job));
+    if (fullJson.length < 350_000) {
+      localStorage.setItem(PENDING_JOB_KEY, fullJson);
+    } else {
+      const compact: InterruptedCompilationJob = {
+        ...job,
+        chunks: [],
+        totalChunks: job.chunks.length,
+        storedInIdb: true,
+      };
+      localStorage.setItem(PENDING_JOB_KEY, JSON.stringify(compact));
+    }
   } catch {
-    // ignore quota errors
+    // Fallback por si localStorage esta lleno en movil
+    try {
+      const compact: InterruptedCompilationJob = {
+        ...job,
+        chunks: [],
+        totalChunks: job.chunks.length,
+        storedInIdb: true,
+      };
+      localStorage.setItem(PENDING_JOB_KEY, JSON.stringify(compact));
+    } catch {
+      // ignore quota errors
+    }
+  }
+}
+
+function updatePendingCompletedIds(bookId: string, sectionId: string): void {
+  const current = readPendingJob();
+  if (current && current.bookId === bookId && !current.completedSectionIds.includes(sectionId)) {
+    const nextIds = [...current.completedSectionIds, sectionId];
+    if (current.storedInIdb) {
+      if (typeof localStorage !== 'undefined') {
+        try {
+          localStorage.setItem(
+            PENDING_JOB_KEY,
+            JSON.stringify({ ...current, completedSectionIds: nextIds, savedAt: Date.now() })
+          );
+        } catch {
+          // ignore
+        }
+      }
+      void livingBooksDb.documentPages
+        .get([IDB_PENDING_JOB_ID, 0])
+        .then((rec) => {
+          if (!rec?.text) return;
+          const full = JSON.parse(rec.text) as InterruptedCompilationJob;
+          if (full.bookId === bookId && !full.completedSectionIds.includes(sectionId)) {
+            return livingBooksDb.documentPages.put({
+              jobId: IDB_PENDING_JOB_ID,
+              pageNumber: 0,
+              text: JSON.stringify({
+                ...full,
+                completedSectionIds: [...full.completedSectionIds, sectionId],
+                savedAt: Date.now(),
+              }),
+            });
+          }
+        })
+        .catch(() => {});
+    } else {
+      savePendingJob({
+        ...current,
+        completedSectionIds: nextIds,
+        savedAt: Date.now(),
+      });
+    }
   }
 }
 
@@ -97,7 +170,7 @@ function readPendingJob(): InterruptedCompilationJob | null {
     const raw = localStorage.getItem(PENDING_JOB_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as InterruptedCompilationJob;
-    if (!parsed?.bookId || !Array.isArray(parsed.chunks)) return null;
+    if (!parsed?.bookId || (!Array.isArray(parsed.chunks) && !parsed.storedInIdb)) return null;
     return parsed;
   } catch {
     return null;
@@ -105,12 +178,17 @@ function readPendingJob(): InterruptedCompilationJob | null {
 }
 
 function clearPendingJob(): void {
+  void livingBooksDb.documentPages.delete([IDB_PENDING_JOB_ID, 0]).catch(() => {});
   if (typeof localStorage === 'undefined') return;
   try {
     localStorage.removeItem(PENDING_JOB_KEY);
   } catch {
     // ignore
   }
+}
+
+function isCompactMobileDevice(): boolean {
+  return typeof window !== 'undefined' && window.innerWidth < 1024;
 }
 
 class CompilationOrchestrator {
@@ -120,6 +198,28 @@ class CompilationOrchestrator {
   private compiler: ParallelBookCompiler | null = null;
   private lastParams: StartCompilationParams | null = null;
   private lastTraces: TracedSnippet[] = [];
+  private wakeLock: { release: () => Promise<void> } | null = null;
+
+  private async requestWakeLock(): Promise<void> {
+    if (typeof navigator === 'undefined') return;
+    const nav = navigator as unknown as {
+      wakeLock?: { request: (type: 'screen') => Promise<{ release: () => Promise<void> }> };
+    };
+    if (!nav.wakeLock) return;
+    try {
+      this.wakeLock = await nav.wakeLock.request('screen');
+    } catch {
+      // No soportado o rechazado (p.ej. pestaña en segundo plano)
+    }
+  }
+
+  private releaseWakeLock(): void {
+    const lock = this.wakeLock;
+    this.wakeLock = null;
+    if (lock) {
+      void lock.release().catch(() => {});
+    }
+  }
 
   getSnapshot = (): OrchestratorSnapshot => this.state;
 
@@ -152,6 +252,7 @@ class CompilationOrchestrator {
     this.lastParams = params;
     this.lastTraces = [];
     const { bookId, metadata, chunks, config, credentials, estimatedCostFallback, onChapterReady } = params;
+    const mobile = isCompactMobileDevice();
 
     this.update({
       phase: 'TRACING',
@@ -168,16 +269,19 @@ class CompilationOrchestrator {
       compilerPaused: false,
     });
 
+    await this.requestWakeLock();
+
     // --- FASE A: TRAZADOR PARALELO DE MEMORIA ---
     const snippets = collectTracerSnippets(chunks);
     const traces: TracedSnippet[] = [];
 
     if (snippets.length > 0) {
-      this.appendLog(`Fase A: trazando ${snippets.length} snippets con 4 workers paralelos...`);
+      const tracerWorkers = mobile ? 1 : 4;
+      this.appendLog(`Fase A: trazando ${snippets.length} snippets con ${tracerWorkers} worker(s)...`);
       const tracer = new ParallelMemoryTracer({
-        workerCount: 4,
+        workerCount: tracerWorkers,
         maxSteps: 35,
-        timeoutMs: 500,
+        timeoutMs: mobile ? 1200 : 800,
         callbacks: {
           onTelemetry: (t) => this.update({ tracerTelemetry: t }),
           onLog: this.appendLog,
@@ -209,7 +313,10 @@ class CompilationOrchestrator {
     }
 
     this.lastTraces = traces;
-    if (this.state.phase === 'CANCELLED') return;
+    if (this.state.phase === 'CANCELLED') {
+      this.releaseWakeLock();
+      return;
+    }
 
     // --- FASE B: COMPILADOR MULTI-AGENTE LLM ---
     const freshQuote = buildPreFlightQuote(chunks, config);
@@ -272,14 +379,7 @@ class CompilationOrchestrator {
           const nextSections = { ...this.state.sections, [section.sectionId]: { ...section } };
           this.update({ sections: nextSections });
           if (section.status === 'COMPLETED') {
-            const current = readPendingJob();
-            if (current && current.bookId === bookId && !current.completedSectionIds.includes(section.sectionId)) {
-              savePendingJob({
-                ...current,
-                completedSectionIds: [...current.completedSectionIds, section.sectionId],
-                savedAt: Date.now(),
-              });
-            }
+            updatePendingCompletedIds(bookId, section.sectionId);
           }
         },
         onChapterReady: (chapterNumber, cartridge) => {
@@ -296,6 +396,9 @@ class CompilationOrchestrator {
             iconKey: 'check',
           });
           onChapterReady?.(chapterNumber, cartridge);
+        },
+        onFatalError: (msg) => {
+          this.update({ error: msg, compilerPaused: true, phase: 'PAUSED' });
         },
         onLog: this.appendLog,
       },
@@ -323,6 +426,8 @@ class CompilationOrchestrator {
         phase: 'FAILED',
         error: err instanceof Error ? err.message : String(err),
       });
+    } finally {
+      this.releaseWakeLock();
     }
   }
 
@@ -330,6 +435,14 @@ class CompilationOrchestrator {
     if (this.isBusy()) return null;
     const saved = readPendingJob();
     if (!saved) return null;
+    if (saved.storedInIdb) {
+      const total = saved.totalChunks ?? 0;
+      if (total > 0 && saved.completedSectionIds.length >= total) {
+        clearPendingJob();
+        return null;
+      }
+      return saved;
+    }
     const remaining = saved.chunks.filter((c) => !saved.completedSectionIds.includes(c.sectionId));
     if (remaining.length === 0) {
       clearPendingJob();
@@ -343,11 +456,22 @@ class CompilationOrchestrator {
   }
 
   async resumeInterruptedJob(credentials: CompilerCredentials): Promise<void> {
-    const saved = this.getInterruptedJob();
+    let saved = this.getInterruptedJob();
     if (!saved) return;
+    if (saved.storedInIdb || saved.chunks.length === 0) {
+      const idbRecord = await livingBooksDb.documentPages.get([IDB_PENDING_JOB_ID, 0]);
+      if (idbRecord?.text) {
+        const full = JSON.parse(idbRecord.text) as InterruptedCompilationJob;
+        saved = { ...full, completedSectionIds: saved.completedSectionIds };
+      }
+    }
     const remainingChunks = saved.chunks.filter(
       (c) => !saved.completedSectionIds.includes(c.sectionId)
     );
+    if (remainingChunks.length === 0) {
+      clearPendingJob();
+      return;
+    }
     await this.startCompilation({
       bookId: saved.bookId,
       metadata: saved.metadata,

@@ -11,6 +11,7 @@ import { validateBookCartridge } from '../../types/cartridge.schema';
 import { livingBooksDb, upsertCompiledChapterToBook } from '../../db/dexieDb';
 import { buildCompilerSystemInstruction, MICROLESSON_RESPONSE_SCHEMA } from './llmCompiler';
 import { formatBookSourceMarkdown, sanitizeLesson } from './lessonSanitizer';
+import { parseJsonLoose } from './metadataTocExtractor';
 import type { SectionChunk, TracedSnippet } from './semanticChunker';
 
 export const MODEL_PRICING: ModelPricingConfig[] = [
@@ -76,6 +77,7 @@ export interface CompilerCallbacks {
   onTelemetry?: (snapshot: TelemetrySnapshot) => void;
   onSectionUpdate?: (section: SectionTaskState) => void;
   onChapterReady?: (chapterNumber: number, cartridge: BookCartridge) => void;
+  onFatalError?: (message: string) => void;
   onLog?: (line: string) => void;
 }
 
@@ -86,6 +88,30 @@ interface LlmResult {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function isFatalCredentialError(msg: string): boolean {
+  return /\b(401|402|403)\b|invalid.*api.*key|insufficient.*credits|unauthorized/i.test(msg);
+}
+
+function getSectionNumericOrder(sectionId: string): number {
+  const match = sectionId.match(/sec(\d+)$/i) ?? sectionId.match(/(\d+)$/);
+  return match ? Number(match[1]) : 0;
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 65000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(`Tiempo de espera agotado (${Math.round(timeoutMs / 1000)}s) esperando respuesta del modelo.`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export class ParallelBookCompiler {
   private job: CompilationJob;
@@ -214,7 +240,7 @@ export class ParallelBookCompiler {
     let attempt = 0;
     let lastError = '';
 
-    while (attempt <= this.job.config.maxRetries) {
+    while (attempt <= this.job.config.maxRetries && !this.cancelled && !this.paused) {
       attempt += 1;
       task.attempts = attempt;
       try {
@@ -234,13 +260,34 @@ export class ParallelBookCompiler {
       } catch (err) {
         lastError = err instanceof Error ? err.message : String(err);
         task.errorLog.push(`Intento ${attempt}: ${lastError}`);
+        if (isFatalCredentialError(lastError)) {
+          task.status = 'FAILED';
+          task.actualDurationSec = (Date.now() - startedAt) / 1000;
+          this.callbacks.onSectionUpdate?.(task);
+          this.callbacks.onLog?.(
+            `Error de autenticacion/cuota (${lastError}). Pausando compilacion para que revises tu API Key.`
+          );
+          this.callbacks.onFatalError?.(lastError);
+          this.pause();
+          await this.persist();
+          return;
+        }
         const isRateLimit = /429|rate limit|too many/i.test(lastError);
+        const isNetwork = /failed to fetch|load failed|network|timeout|tiempo de espera|502|503|504/i.test(
+          lastError
+        );
         if (isRateLimit) {
-          const backoff = Math.min(30000, 1000 * 2 ** attempt) + Math.random() * 500;
+          const backoff = Math.min(30000, 1500 * 2 ** attempt) + Math.random() * 500;
           this.callbacks.onLog?.(`Rate limit en ${task.sectionId}. Backoff ${Math.round(backoff)}ms.`);
           await sleep(backoff);
+        } else if (isNetwork && attempt <= this.job.config.maxRetries) {
+          const backoff = Math.min(12000, 1200 * 2 ** (attempt - 1)) + Math.random() * 400;
+          this.callbacks.onLog?.(
+            `Error de red en ${task.sectionId} (intento ${attempt}). Reintentando en ${Math.round(backoff)}ms...`
+          );
+          await sleep(backoff);
         } else if (attempt <= this.job.config.maxRetries) {
-          await sleep(600 * attempt);
+          await sleep(700 * attempt);
         }
       }
     }
@@ -249,6 +296,8 @@ export class ParallelBookCompiler {
     task.actualDurationSec = (Date.now() - startedAt) / 1000;
     this.callbacks.onSectionUpdate?.(task);
     await this.persist();
+    // Si el resto del capitulo ya termino, guardar los capitulos/lecciones que si funcionaron
+    await this.tryAssembleChapter(task.chapterNumber);
   }
 
   private computeCost(inputTokens: number, outputTokens: number, pricing: ModelPricingConfig): number {
@@ -295,8 +344,16 @@ export class ParallelBookCompiler {
     if (pricing.provider === 'ollama') {
       return this.callOllama(model, sysInstruction, userPayload, chunk);
     }
-    if (pricing.provider === 'gemini') {
-      return this.callGemini(model, sysInstruction, userPayload, chunk);
+    if (
+      pricing.provider === 'gemini' ||
+      (!this.credentials.openrouterApiKey && Boolean(this.credentials.geminiApiKey))
+    ) {
+      const geminiModel = model.startsWith('google/')
+        ? model.slice('google/'.length)
+        : model.includes('/')
+          ? 'gemini-2.5-flash'
+          : model;
+      return this.callGemini(geminiModel, sysInstruction, userPayload, chunk);
     }
     return this.callOpenRouter(model, sysInstruction, userPayload, chunk);
   }
@@ -307,24 +364,30 @@ export class ParallelBookCompiler {
     userPayload: string,
     chunk: SectionChunk
   ): Promise<LlmResult> {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${this.credentials.openrouterApiKey}`,
-        'HTTP-Referer': typeof window !== 'undefined' ? window.location.origin : 'https://living-books.app',
-        'X-Title': 'Universal Living Book Engine',
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: 'system', content: sysInstruction },
-          { role: 'user', content: userPayload },
-        ],
-        response_format: { type: 'json_object' },
-        temperature: 0.2,
-      }),
-    });
+    const requestOnce = async (withJsonFormat: boolean): Promise<Response> =>
+      fetchWithTimeout('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.credentials.openrouterApiKey}`,
+          'HTTP-Referer': typeof window !== 'undefined' ? window.location.origin : 'https://living-books.app',
+          'X-Title': 'Universal Living Book Engine',
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: sysInstruction },
+            { role: 'user', content: userPayload },
+          ],
+          ...(withJsonFormat ? { response_format: { type: 'json_object' } } : {}),
+          temperature: 0.2,
+        }),
+      });
+
+    let response = await requestOnce(true);
+    if ((response.status === 400 || response.status === 422) && !this.cancelled) {
+      response = await requestOnce(false);
+    }
     if (!response.ok) throw new Error(`OpenRouter ${response.status}: ${(await response.text()).slice(0, 200)}`);
     const data = (await response.json()) as {
       choices?: Array<{ message?: { content?: string } }>;
@@ -346,7 +409,7 @@ export class ParallelBookCompiler {
     chunk: SectionChunk
   ): Promise<LlmResult> {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.credentials.geminiApiKey}`;
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -376,7 +439,7 @@ export class ParallelBookCompiler {
     chunk: SectionChunk
   ): Promise<LlmResult> {
     const base = this.credentials.ollamaBaseUrl || 'http://localhost:11434';
-    const response = await fetch(`${base}/api/chat`, {
+    const response = await fetchWithTimeout(`${base}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -405,13 +468,7 @@ export class ParallelBookCompiler {
   }
 
   private parseLesson(text: string, chunk: SectionChunk): MicroLesson {
-    let cleaned = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
-    const start = cleaned.indexOf('{');
-    const end = cleaned.lastIndexOf('}');
-    if (start >= 0 && end > start) {
-      cleaned = cleaned.slice(start, end + 1);
-    }
-    const parsed = JSON.parse(cleaned) as unknown;
+    const parsed = parseJsonLoose(text);
     return sanitizeLesson(parsed, {
       sectionTitle: chunk.sectionTitle,
       cleanText: chunk.text,
@@ -451,7 +508,7 @@ export class ParallelBookCompiler {
   ): { chapter: Chapter; glossary: Record<string, GlossaryEntry> } | null {
     const chapterTasks = Object.values(this.job.sectionsMap)
       .filter((s) => s.chapterNumber === chapterNumber && s.status === 'COMPLETED' && s.compiledLesson)
-      .sort((a, b) => a.sectionId.localeCompare(b.sectionId));
+      .sort((a, b) => getSectionNumericOrder(a.sectionId) - getSectionNumericOrder(b.sectionId));
     if (chapterTasks.length === 0) return null;
 
     const chapter: Chapter = {
@@ -477,7 +534,11 @@ export class ParallelBookCompiler {
 
   private async tryAssembleChapter(chapterNumber: number): Promise<void> {
     const chapterTasks = Object.values(this.job.sectionsMap).filter((s) => s.chapterNumber === chapterNumber);
-    if (chapterTasks.length === 0 || !chapterTasks.every((s) => s.status === 'COMPLETED')) return;
+    if (chapterTasks.length === 0) return;
+    const stillActive = chapterTasks.some((s) => s.status === 'QUEUED' || s.status === 'RUNNING');
+    if (stillActive) return;
+    const completedCount = chapterTasks.filter((s) => s.status === 'COMPLETED').length;
+    if (completedCount === 0) return;
 
     const assembled = this.assembleChapter(chapterNumber);
     if (!assembled) return;
@@ -499,7 +560,11 @@ export class ParallelBookCompiler {
     }
 
     this.callbacks.onChapterReady?.(chapterNumber, merged);
-    this.callbacks.onLog?.(`Capitulo ${chapterNumber} fusionado en la base de datos del libro.`);
+    const partialNote =
+      completedCount < chapterTasks.length
+        ? ` (${completedCount}/${chapterTasks.length} secciones; las fallidas se pueden reintentar)`
+        : '';
+    this.callbacks.onLog?.(`Capitulo ${chapterNumber} fusionado en la base de datos del libro${partialNote}.`);
   }
 
   assembleCartridge(): BookCartridge {

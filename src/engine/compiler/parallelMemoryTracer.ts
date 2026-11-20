@@ -77,6 +77,8 @@ export class ParallelMemoryTracer {
   private timeoutMs: number;
   private callbacks: TracerCallbacks;
   private workers: PythonRuntimeBridge[] = [];
+  private warmedWorkers = new WeakSet<PythonRuntimeBridge>();
+  private runtimeUnavailable = false;
   private paused = false;
   private cancelled = false;
   private startedAt = 0;
@@ -148,6 +150,7 @@ export class ParallelMemoryTracer {
     this.results = [];
     this.cancelled = false;
     this.paused = false;
+    this.runtimeUnavailable = false;
     this.startedAt = Date.now();
     this.emaSecPerSnippet = 0;
     this.telemetry = {
@@ -208,6 +211,35 @@ export class ParallelMemoryTracer {
     return this.results;
   }
 
+  private async ensureWorkerWarmed(worker: PythonRuntimeBridge): Promise<void> {
+    if (this.warmedWorkers.has(worker)) return;
+    const initTimeoutMs = 25000;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const warmup = worker.initBookRuntime('__tracer_warmup__', [], {});
+      warmup.catch(() => undefined);
+      await Promise.race([
+        warmup,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error('Tiempo de espera agotado al inicializar Pyodide para trazado.')),
+            initTimeoutMs
+          );
+        }),
+      ]);
+      this.warmedWorkers.add(worker);
+    } catch (err) {
+      worker.dispose();
+      this.runtimeUnavailable = true;
+      this.callbacks.onLog?.(
+        `Fase A: Pyodide no pudo inicializarse en este dispositivo (${err instanceof Error ? err.message : String(err)}). Se omitira el trazado local y continuara el compilador IA.`
+      );
+      throw err;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   private async processSnippet(
     snippet: TracerSnippetInput,
     worker: PythonRuntimeBridge
@@ -249,6 +281,21 @@ export class ParallelMemoryTracer {
       };
     }
 
+    if (this.runtimeUnavailable) {
+      return {
+        sectionId: snippet.sectionId,
+        snippetIndex: snippet.snippetIndex,
+        code: normalized,
+        hash,
+        status: 'FAILED',
+        memorySteps: [],
+        durationMs: 0,
+        reason: 'Pyodide no disponible.',
+      };
+    }
+
+    await this.ensureWorkerWarmed(worker);
+
     const steps = await this.traceWithTimeout(worker, normalized);
     await livingBooksDb.memoryTraces.put({
       hash,
@@ -285,6 +332,7 @@ export class ParallelMemoryTracer {
     } catch (err) {
       // El worker quedo atascado: lo reiniciamos para no bloquear la cola.
       worker.dispose();
+      this.warmedWorkers.delete(worker);
       throw err;
     } finally {
       if (timer) clearTimeout(timer);

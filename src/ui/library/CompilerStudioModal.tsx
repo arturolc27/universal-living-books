@@ -36,6 +36,7 @@ import {
 import {
   extractBookSource,
   type BookSourceNativeMetadata,
+  type NativeChapterEntry,
 } from '../../engine/compiler/bookSourceAdapter';
 import {
   generateEditorialCoverDataUrl,
@@ -125,19 +126,23 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
   const [coverDataUrl, setCoverDataUrl] = useState<string | null>(null);
   const [optimizedCover, setOptimizedCover] = useState<OptimizedCoverResult | null>(null);
   const [nativeMetadata, setNativeMetadata] = useState<BookSourceNativeMetadata | undefined>(undefined);
+  const [nativeChapters, setNativeChapters] = useState<NativeChapterEntry[] | undefined>(undefined);
   const [extractedTotalPages, setExtractedTotalPages] = useState<number>(0);
   const [isScannedWarning, setIsScannedWarning] = useState(false);
   const [metadata, setMetadata] = useState<BookMetadataDraft | null>(null);
   const [chaptersIndex, setChaptersIndex] = useState<ChapterIndexEntry[]>([]);
   const [chunks, setChunks] = useState<SectionChunk[]>([]);
-  const [config, setConfig] = useState<CompilerJobConfig>({
-    fastModel: settings.openrouterModel || 'google/gemini-2.5-flash',
-    reasoningModel: 'google/gemini-2.5-flash',
-    concurrencyLimit: 4,
-    dryRun: false,
-    maxRetries: 2,
-    outputExpansionFactor: 1.45,
-    targetLanguage: 'es',
+  const [config, setConfig] = useState<CompilerJobConfig>(() => {
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024;
+    return {
+      fastModel: settings.openrouterModel || 'google/gemini-2.5-flash',
+      reasoningModel: 'google/gemini-2.5-flash',
+      concurrencyLimit: isMobile ? 2 : 4,
+      dryRun: false,
+      maxRetries: 3,
+      outputExpansionFactor: 1.45,
+      targetLanguage: 'es',
+    };
   });
   const [localLog, setLocalLog] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -180,6 +185,7 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
     setChaptersIndex([]);
     setChunks([]);
     setCoverDataUrl(null);
+    setNativeChapters(undefined);
     try {
       setIsExtractingPdf(true);
       setPdfProgress({ page: 0, total: 0 });
@@ -190,11 +196,13 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
       setRawText(result.text);
       setCoverDataUrl(result.coverDataUrl);
       setNativeMetadata(result.nativeMetadata);
+      setNativeChapters(result.nativeChapters);
       setExtractedTotalPages(result.totalPages);
       setOptimizedCover(null);
       setIsScannedWarning(false);
       appendLog(
         `${result.format.toUpperCase()} procesado: ${result.text.length.toLocaleString()} caracteres, ${result.totalPages} paginas/secciones` +
+          (result.nativeChapters ? `, ${result.nativeChapters.length} capitulos en indice nativo` : '') +
           (result.coverDataUrl ? ' + portada extraida.' : '.')
       );
       if (autoPipeline && (config.dryRun || settings.openrouterApiKey || settings.geminiApiKey)) {
@@ -202,6 +210,7 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
           text: result.text,
           cover: result.coverDataUrl,
           native: result.nativeMetadata,
+          nativeChapters: result.nativeChapters,
           pages: result.totalPages,
           autoStart: true,
         });
@@ -230,12 +239,15 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
     text?: string;
     cover?: string | null;
     native?: BookSourceNativeMetadata;
+    nativeChapters?: NativeChapterEntry[];
     pages?: number;
     autoStart?: boolean;
   }) => {
     const sourceText = params?.text ?? rawText;
     const sourceCover = params?.cover !== undefined ? params.cover : coverDataUrl;
     const sourceNative = params?.native !== undefined ? params.native : nativeMetadata;
+    const sourceNativeChapters =
+      params?.nativeChapters !== undefined ? params.nativeChapters : nativeChapters;
     const sourcePages = params?.pages !== undefined ? params.pages : extractedTotalPages;
 
     setError(null);
@@ -261,7 +273,14 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
     }, 600);
 
     try {
-      const provider = settings.geminiApiKey && !settings.openrouterApiKey ? 'gemini' : 'openrouter';
+      const provider =
+        settings.llmProvider === 'gemini' && settings.geminiApiKey
+          ? 'gemini'
+          : settings.openrouterApiKey
+            ? 'openrouter'
+            : settings.geminiApiKey
+              ? 'gemini'
+              : 'openrouter';
       setScanProgress({ pct: 30, label: 'Analizando indice maestro con IA...', elapsedSec: 0 });
       const result = await extractMetadataAndToc(sourceText, {
         provider,
@@ -273,6 +292,7 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
         onLog: appendLog,
         coverImageDataUrl: sourceCover ?? undefined,
         nativeMetadata: sourceNative,
+        nativeChapters: sourceNativeChapters,
         totalPages: sourcePages,
       });
 
@@ -552,33 +572,33 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
       role="dialog"
       aria-modal="true"
       aria-label="Estudio de Ingesta Incremental"
-      className="fixed inset-0 z-[78] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[78] flex items-center justify-center bg-black/60 p-2 backdrop-blur-sm sm:p-4"
     >
-      <div className="glass-strong flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-subtle">
-        <div className="flex items-center justify-between border-b border-subtle px-4 py-3">
-          <div className="flex items-center gap-2">
-            <Sparkles size={16} className="text-accent" />
-            <h3 className="text-sm font-semibold text-primary">Estudio de Ingesta Incremental</h3>
-            <span className="rounded-full bg-elevated px-2 py-0.5 text-[10px] text-muted">
+      <div className="glass-strong flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-subtle sm:max-h-[92vh]">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-subtle px-3 py-2.5 sm:px-4 sm:py-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <Sparkles size={16} className="shrink-0 text-accent" />
+            <h3 className="truncate text-xs font-semibold text-primary sm:text-sm">Estudio de Ingesta</h3>
+            <span className="max-w-[11rem] truncate rounded-full bg-elevated px-2 py-0.5 text-[10px] text-muted">
               {metadata?.title || orchestrator.bookTitle || 'Multi-Agente'}
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             {view === 'RUNNING' && (orchestrator.phase === 'TRACING' || orchestrator.phase === 'COMPILING' || orchestrator.phase === 'PAUSED') && (
               <>
                 <button
                   type="button"
                   onClick={onClose}
-                  className="rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20"
+                  className="rounded-lg border border-accent/40 bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent hover:bg-accent/20 sm:px-3 sm:py-1.5 sm:text-xs"
                 >
-                  Seguir en segundo plano
+                  Segundo plano
                 </button>
                 <button
                   type="button"
                   onClick={handleCancel}
-                  className="flex items-center gap-1.5 rounded-lg border border-danger/50 px-3 py-1.5 text-xs text-danger hover:bg-danger/10"
+                  className="flex items-center gap-1 rounded-lg border border-danger/50 px-2.5 py-1 text-[11px] text-danger hover:bg-danger/10 sm:px-3 sm:py-1.5 sm:text-xs"
                 >
-                  <Square size={13} /> Cancelar
+                  <Square size={12} /> Cancelar
                 </button>
               </>
             )}
@@ -586,23 +606,23 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
               <button
                 type="button"
                 onClick={handleRetryFailed}
-                className="flex items-center gap-1.5 rounded-lg border border-secondary/50 bg-secondary/10 px-3 py-1.5 text-xs font-medium text-secondary hover:bg-secondary/20"
+                className="flex items-center gap-1 rounded-lg border border-secondary/50 bg-secondary/10 px-2.5 py-1 text-[11px] font-medium text-secondary hover:bg-secondary/20 sm:px-3 sm:py-1.5 sm:text-xs"
               >
-                <RefreshCw size={13} /> Reintentar fallidos ({failedCount})
+                <RefreshCw size={12} /> Reintentar ({failedCount})
               </button>
             )}
             <button
               type="button"
               onClick={onClose}
               aria-label="Cerrar estudio de compilacion"
-              className="text-muted hover:text-primary"
+              className="p-1 text-muted hover:text-primary"
             >
               <X size={16} />
             </button>
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
           {view === 'CONFIG' && (
             <div className="space-y-4">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -906,13 +926,13 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
                       </button>
                     </div>
                   </div>
-                  <div className="max-h-64 space-y-1 overflow-y-auto">
+                  <div className="max-h-64 space-y-1.5 overflow-y-auto">
                     {chaptersIndex.map((c) => {
                       const dbMeta = DB_STATUS_META[c.dbStatus];
                       return (
                         <label
                           key={c.chapterNumber}
-                          className="flex cursor-pointer items-center gap-2 rounded-lg border border-subtle/60 px-2 py-1.5 hover:border-accent/40"
+                          className="flex cursor-pointer flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-subtle/60 px-2.5 py-2 hover:border-accent/40 sm:flex-nowrap sm:py-1.5"
                         >
                           <input
                             type="checkbox"
@@ -920,16 +940,16 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
                             onChange={() => toggleChapter(c.chapterNumber)}
                             className="accent-[var(--accent-primary)]"
                           />
-                          <span className="flex-1 truncate text-[11px] text-primary">
+                          <span className="min-w-[10rem] flex-1 truncate text-[11px] font-medium text-primary">
                             Cap {c.chapterNumber}: {c.title}
                           </span>
                           <span className="code-font text-[10px] text-muted">
-                            Pags. {c.startPage}-{c.endPage} | {c.estimatedMicroLessons} micro-lecciones
+                            Págs. {c.startPage}-{c.endPage} · {c.estimatedMicroLessons} lec.
                           </span>
                           <span className={cn('rounded-full border px-2 py-0.5 text-[9px]', dbMeta.className)}>
                             {dbMeta.label}
                           </span>
-                          <span className="code-font w-16 text-right text-[10px] text-secondary">
+                          <span className="code-font text-right text-[10px] text-secondary sm:w-16">
                             ~{fmtUsd(c.estimatedCostUsd)}
                           </span>
                         </label>
@@ -1096,6 +1116,33 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
                 </div>
               </div>
 
+              {(orchestrator.error || (failedCount > 0 && orchestrator.phase !== 'COMPILING')) && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-danger/40 bg-danger/10 p-3 text-xs text-danger">
+                  <div className="flex min-w-0 items-start gap-2">
+                    <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="font-semibold">
+                        {orchestrator.error
+                          ? `Error en compilación: ${orchestrator.error}`
+                          : `${failedCount} sección(es) fallaron durante la compilación`}
+                      </p>
+                      <p className="mt-0.5 text-[11px] opacity-90">
+                        Los capítulos y secciones completados siguen guardados. Puedes reintentar las secciones fallidas sin repetir lo ya compilado.
+                      </p>
+                    </div>
+                  </div>
+                  {failedCount > 0 && orchestrator.phase !== 'COMPILING' && (
+                    <button
+                      type="button"
+                      onClick={handleRetryFailed}
+                      className="flex shrink-0 items-center gap-1.5 rounded-lg border border-secondary/60 bg-secondary/15 px-3 py-1.5 text-[11px] font-semibold text-secondary hover:bg-secondary/25"
+                    >
+                      <RefreshCw size={12} /> Reintentar fallidos ({failedCount})
+                    </button>
+                  )}
+                </div>
+              )}
+
               {readyChapters.length > 0 && (
                 <button
                   type="button"
@@ -1107,7 +1154,7 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
               )}
 
               <div className="overflow-hidden rounded-xl border border-subtle">
-                <div className="grid grid-cols-[80px_1fr_90px_120px_80px_70px] gap-2 border-b border-subtle bg-elevated px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted">
+                <div className="hidden grid-cols-[80px_1fr_70px_110px_75px_65px] gap-2 border-b border-subtle bg-elevated px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted sm:grid">
                   <span>Estado</span>
                   <span>Micro-Leccion</span>
                   <span>Agente</span>
@@ -1115,34 +1162,65 @@ export function CompilerStudioModal({ onClose }: { onClose: () => void }) {
                   <span>Costo</span>
                   <span>Tiempo</span>
                 </div>
-                <div className="max-h-64 overflow-y-auto">
+                <div className="max-h-64 divide-y divide-subtle/50 overflow-y-auto">
                   {sectionList.map((s) => {
                     const meta = STATUS_META[s.status];
+                    const lastErr = s.errorLog.length > 0 ? s.errorLog[s.errorLog.length - 1] : null;
                     return (
-                      <div
-                        key={s.sectionId}
-                        className="grid grid-cols-[80px_1fr_90px_120px_80px_70px] items-center gap-2 border-b border-subtle/50 px-3 py-1.5 text-[11px]"
-                      >
-                        <span className={cn('flex items-center gap-1 font-medium', meta.className)}>
-                          {s.status === 'RUNNING' && <Loader2 size={10} className="animate-spin" />}
-                          {s.status === 'COMPLETED' && <CheckCircle2 size={10} />}
-                          {s.status === 'FAILED' && <AlertTriangle size={10} />}
-                          {meta.label}
-                        </span>
-                        <span className="truncate text-primary">
-                          {s.chapterNumber}. {s.sectionTitle}
-                        </span>
-                        <span className="text-muted">{s.assignedWorkerId ? `#${s.assignedWorkerId}` : '-'}</span>
-                        <span className="code-font text-muted">
-                          {s.actualInputTokens || s.estimatedInputTokens} /{' '}
-                          {s.actualOutputTokens || `~${s.estimatedOutputTokens}`}
-                        </span>
-                        <span className="code-font text-secondary">
-                          {fmtUsd(s.actualCostUsd || s.estimatedCostUsd)}
-                        </span>
-                        <span className="code-font text-muted">
-                          {s.actualDurationSec ? `${s.actualDurationSec.toFixed(1)}s` : `~${s.estimatedDurationSec.toFixed(1)}s`}
-                        </span>
+                      <div key={s.sectionId} className="px-3 py-2 text-[11px]">
+                        {/* Vista Movil */}
+                        <div className="flex flex-col gap-1 sm:hidden">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className={cn('flex items-center gap-1 font-medium', meta.className)}>
+                              {s.status === 'RUNNING' && <Loader2 size={10} className="animate-spin" />}
+                              {s.status === 'COMPLETED' && <CheckCircle2 size={10} />}
+                              {s.status === 'FAILED' && <AlertTriangle size={10} />}
+                              {meta.label}
+                            </span>
+                            <span className="code-font text-[10px] text-muted">
+                              {s.actualDurationSec ? `${s.actualDurationSec.toFixed(1)}s` : `~${s.estimatedDurationSec.toFixed(1)}s`} · {fmtUsd(s.actualCostUsd || s.estimatedCostUsd)}
+                            </span>
+                          </div>
+                          <p className="truncate font-medium text-primary">
+                            {s.chapterNumber}. {s.sectionTitle}
+                          </p>
+                          {lastErr && (
+                            <p className="break-words rounded bg-danger/10 px-2 py-1 text-[10px] text-danger">
+                              {lastErr}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Vista Desktop */}
+                        <div className="hidden sm:block">
+                          <div className="grid grid-cols-[80px_1fr_70px_110px_75px_65px] items-center gap-2">
+                            <span className={cn('flex items-center gap-1 font-medium', meta.className)}>
+                              {s.status === 'RUNNING' && <Loader2 size={10} className="animate-spin" />}
+                              {s.status === 'COMPLETED' && <CheckCircle2 size={10} />}
+                              {s.status === 'FAILED' && <AlertTriangle size={10} />}
+                              {meta.label}
+                            </span>
+                            <span className="truncate text-primary">
+                              {s.chapterNumber}. {s.sectionTitle}
+                            </span>
+                            <span className="text-muted">{s.assignedWorkerId ? `#${s.assignedWorkerId}` : '-'}</span>
+                            <span className="code-font text-muted">
+                              {s.actualInputTokens || s.estimatedInputTokens} /{' '}
+                              {s.actualOutputTokens || `~${s.estimatedOutputTokens}`}
+                            </span>
+                            <span className="code-font text-secondary">
+                              {fmtUsd(s.actualCostUsd || s.estimatedCostUsd)}
+                            </span>
+                            <span className="code-font text-muted">
+                              {s.actualDurationSec ? `${s.actualDurationSec.toFixed(1)}s` : `~${s.estimatedDurationSec.toFixed(1)}s`}
+                            </span>
+                          </div>
+                          {lastErr && (
+                            <p className="mt-1 truncate pl-[88px] text-[10px] text-danger" title={lastErr}>
+                              {lastErr}
+                            </p>
+                          )}
+                        </div>
                       </div>
                     );
                   })}

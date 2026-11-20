@@ -35,9 +35,37 @@ export function cleanText(raw: string): string {
 export function extractCodeSnippets(text: string): string[] {
   const snippets: string[] = [];
   let current: string[] = [];
+  let inFence = false;
+  let fencePython = true;
+
   for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('```')) {
+      if (!inFence) {
+        if (current.length > 0) {
+          snippets.push(current.join('\n'));
+          current = [];
+        }
+        const lang = trimmed.slice(3).trim().toLowerCase();
+        fencePython = !lang || lang === 'python' || lang === 'py' || lang === 'pycon';
+        inFence = true;
+      } else {
+        if (fencePython && current.length > 0) {
+          snippets.push(current.join('\n'));
+        }
+        current = [];
+        inFence = false;
+      }
+      continue;
+    }
+
+    if (inFence) {
+      if (fencePython) current.push(line);
+      continue;
+    }
+
     const looksLikeCode =
-      line.trim().startsWith('>>>') ||
+      trimmed.startsWith('>>>') ||
       line.startsWith('    ') ||
       /^\s*(def |class |import |from )/.test(line);
     if (looksLikeCode) {
@@ -47,7 +75,9 @@ export function extractCodeSnippets(text: string): string[] {
       current = [];
     }
   }
-  if (current.length > 0) snippets.push(current.join('\n'));
+  if (current.length > 0 && (!inFence || fencePython)) {
+    snippets.push(current.join('\n'));
+  }
   return snippets.filter((s) => s.trim().length > 12);
 }
 
