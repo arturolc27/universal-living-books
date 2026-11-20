@@ -283,10 +283,13 @@ export function DesktopStudioShell() {
               <EditorialReader
                 cartridge={cartridge}
                 blocks={lesson.blocks}
-                unlockedBlockIndex={unlockedBlockIndex}
+                unlockedBlockIndex={Math.max(unlockedBlockIndex, safeActiveIdx)}
                 learningObjectives={lesson.learningObjectives}
                 takeaways={lesson.takeaways}
+                sourceBookMarkdown={lesson.sourceBookMarkdown}
+                sourcePageRange={lesson.sourcePageRange}
                 onTryCode={handleTrySnippet}
+                onRecompileBook={() => usePlatformStore.getState().setCompilerOpen(true)}
               />
             </div>
 

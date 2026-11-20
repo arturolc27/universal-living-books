@@ -164,6 +164,9 @@ export function MobileCompanionShell() {
                     unlockedBlockIndex={Math.max(unlockedBlockIndex, safeActiveIndex)}
                     learningObjectives={lesson.learningObjectives}
                     takeaways={lesson.takeaways}
+                    sourceBookMarkdown={lesson.sourceBookMarkdown}
+                    sourcePageRange={lesson.sourcePageRange}
+                    onRecompileBook={() => usePlatformStore.getState().setCompilerOpen(true)}
                   />
                 </div>
                 <div className="flex items-center gap-2 border-t border-subtle bg-surface/60 px-3 py-2">

@@ -10,7 +10,7 @@ import type {
 import { validateBookCartridge } from '../../types/cartridge.schema';
 import { livingBooksDb, upsertCompiledChapterToBook } from '../../db/dexieDb';
 import { buildCompilerSystemInstruction, MICROLESSON_RESPONSE_SCHEMA } from './llmCompiler';
-import { sanitizeLesson } from './lessonSanitizer';
+import { formatBookSourceMarkdown, sanitizeLesson } from './lessonSanitizer';
 import type { SectionChunk, TracedSnippet } from './semanticChunker';
 
 export const MODEL_PRICING: ModelPricingConfig[] = [
@@ -419,16 +419,19 @@ export class ParallelBookCompiler {
   }
 
   private syntheticLesson(chunk: SectionChunk): MicroLesson {
+    const formatted = formatBookSourceMarkdown(chunk.text);
     return {
       lessonId: chunk.sectionId,
       order: 1,
       title: chunk.sectionTitle,
       estimatedMinutes: 10,
+      sourceBookMarkdown: formatted.markdown,
+      sourcePageRange: formatted.pageRange,
       blocks: [
         {
           blockId: `${chunk.sectionId}-prose`,
           type: 'PROSE',
-          markdown: `[DRY-RUN] ${chunk.text.slice(0, 400)}`,
+          markdown: `Guía rápida de **${chunk.sectionTitle}**. Revisa la lectura del libro original y prueba los fragmentos de Python directamente en el laboratorio.`,
         },
         {
           blockId: `${chunk.sectionId}-card`,

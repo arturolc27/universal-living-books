@@ -262,7 +262,66 @@ export function sanitizeBlock(raw: unknown, index: number): LessonBlock | null {
   return base as unknown as LessonBlock;
 }
 
-/** Sanea una leccion completa; inyecta prosa del libro si el LLM la omitio. */
+/**
+ * Formatea el texto crudo de una seccion del libro en Markdown limpio y legible,
+ * preservando bloques de codigo Python (`>>>` o indentados) y marcadores de pagina.
+ */
+export function formatBookSourceMarkdown(rawText: string): {
+  markdown: string;
+  pageRange?: string;
+} {
+  const trimmed = rawText.trim();
+  if (!trimmed) return { markdown: '' };
+
+  const pages: number[] = [];
+  const lines = trimmed.split(/\r?\n/);
+  const out: string[] = [];
+  let inCode = false;
+  let codeLines: string[] = [];
+
+  const flushCode = () => {
+    if (codeLines.length === 0) return;
+    out.push('```python\n' + codeLines.join('\n') + '\n```');
+    codeLines = [];
+    inCode = false;
+  };
+
+  for (const rawLine of lines) {
+    const pageMatch = rawLine.match(/^\s*-{2,}\s*(?:page|pagina|pág\.?)\s*(\d+)\s*-{2,}\s*$/i);
+    if (pageMatch) {
+      flushCode();
+      const pageNum = Number(pageMatch[1]);
+      if (Number.isFinite(pageNum)) pages.push(pageNum);
+      out.push(`\n---\n\n##### Página ${pageNum}\n`);
+      continue;
+    }
+
+    const isReplOrDef =
+      /^\s*>>>\s?/.test(rawLine) ||
+      /^\s*\.\.\.\s?/.test(rawLine) ||
+      (/^(?:\s{4}|\t)\S/.test(rawLine) && inCode);
+
+    if (isReplOrDef) {
+      inCode = true;
+      codeLines.push(rawLine.replace(/^\s*(?:>>>|\.\.\.)\s?/, ''));
+    } else {
+      flushCode();
+      out.push(rawLine);
+    }
+  }
+  flushCode();
+
+  const markdown = out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  let pageRange: string | undefined;
+  if (pages.length > 0) {
+    const minP = Math.min(...pages);
+    const maxP = Math.max(...pages);
+    pageRange = minP === maxP ? `Pág. ${minP}` : `Págs. ${minP}–${maxP}`;
+  }
+  return { markdown, pageRange };
+}
+
+/** Sanea una leccion completa; preserva el texto real del libro e inyecta prosa si falta. */
 export function sanitizeLesson(
   raw: unknown,
   fallback: LessonSanitizeFallback = {}
@@ -277,10 +336,11 @@ export function sanitizeLesson(
   // Si el LLM no genero ningun bloque PROSE pero tenemos el texto fuente, lo preservamos al inicio.
   const hasProse = blocks.some((b) => b.type === 'PROSE');
   if (!hasProse && fallback.cleanText && fallback.cleanText.trim().length > 0) {
+    const formatted = formatBookSourceMarkdown(fallback.cleanText);
     blocks.unshift({
       blockId: `fallback-prose-${Date.now()}`,
       type: 'PROSE',
-      markdown: fallback.cleanText.trim().slice(0, 1800),
+      markdown: formatted.markdown.slice(0, 3500),
     });
   }
 
@@ -293,6 +353,23 @@ export function sanitizeLesson(
     rawTitle && rawTitle.toLowerCase() !== 'leccion'
       ? rawTitle
       : fallback.sectionTitle?.trim() || 'Leccion';
+
+  let sourceBookMarkdown =
+    typeof lesson.sourceBookMarkdown === 'string' && lesson.sourceBookMarkdown.trim().length > 0
+      ? lesson.sourceBookMarkdown
+      : undefined;
+  let sourcePageRange =
+    typeof lesson.sourcePageRange === 'string' && lesson.sourcePageRange.trim().length > 0
+      ? lesson.sourcePageRange
+      : undefined;
+
+  if (!sourceBookMarkdown && fallback.cleanText && fallback.cleanText.trim().length > 0) {
+    const formatted = formatBookSourceMarkdown(fallback.cleanText);
+    if (formatted.markdown) {
+      sourceBookMarkdown = formatted.markdown;
+      sourcePageRange = sourcePageRange ?? formatted.pageRange;
+    }
+  }
 
   const sanitized: MicroLesson & { extractedGlossary?: Record<string, unknown> } = {
     lessonId:
@@ -312,6 +389,8 @@ export function sanitizeLesson(
     takeaways: Array.isArray(lesson.takeaways)
       ? lesson.takeaways.map(String).filter(Boolean)
       : undefined,
+    sourceBookMarkdown,
+    sourcePageRange,
     blocks,
   };
 

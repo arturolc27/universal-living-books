@@ -1,12 +1,26 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSanitize from 'rehype-sanitize';
-import { Lightbulb, AlertTriangle, BookOpen, Bug, Youtube, Target, CheckCircle2, Play } from 'lucide-react';
+import {
+  Lightbulb,
+  AlertTriangle,
+  BookOpen,
+  Bug,
+  Youtube,
+  Target,
+  CheckCircle2,
+  Play,
+  Sparkles,
+  BookText,
+  RefreshCw,
+} from 'lucide-react';
 import type { BookCartridge, GlossaryEntry, LessonBlock, ProseBlock, YouTubeRefBlock } from '../../types/cartridge.types';
 import { usePlatformStore } from '../../store/usePlatformStore';
 import { cn } from '../utils/cn';
 import { sanitizeYouTubeId } from '../utils/sanitize';
+
+type ReaderTab = 'COMBINED' | 'BOOK' | 'GUIDE';
 
 const CALLOUT_META: Record<
   NonNullable<ProseBlock['callout']>['kind'],
@@ -25,6 +39,109 @@ function preprocessGlossaryLinks(markdown: string): string {
   });
 }
 
+function RichMarkdown({
+  content,
+  glossary,
+  onTermClick,
+  onTryCode,
+}: {
+  content: string;
+  glossary: Record<string, GlossaryEntry>;
+  onTermClick: (entry: GlossaryEntry) => void;
+  onTryCode?: (code: string) => void;
+}) {
+  const markdown = useMemo(() => preprocessGlossaryLinks(content), [content]);
+
+  return (
+    <div className="editorial-prose space-y-2.5 text-sm leading-relaxed text-primary">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeSanitize]}
+        components={{
+          p: ({ children }) => <p className="leading-relaxed text-primary">{children}</p>,
+          h1: ({ children }) => <h2 className="mt-3 text-base font-bold text-primary">{children}</h2>,
+          h2: ({ children }) => <h3 className="mt-2.5 text-sm font-bold text-primary">{children}</h3>,
+          h3: ({ children }) => (
+            <h4 className="mt-2 text-xs font-semibold uppercase tracking-wide text-accent">{children}</h4>
+          ),
+          h5: ({ children }) => (
+            <span className="mt-2 inline-block rounded-full border border-subtle bg-elevated px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted">
+              {children}
+            </span>
+          ),
+          hr: () => <hr className="my-3 border-subtle/60" />,
+          ul: ({ children }) => <ul className="list-disc space-y-1 pl-5 text-sm text-primary">{children}</ul>,
+          ol: ({ children }) => <ol className="list-decimal space-y-1 pl-5 text-sm text-primary">{children}</ol>,
+          code: ({ children, className }) => {
+            const rawText = String(children).replace(/\n$/, '');
+            const isBlock = Boolean(className?.includes('language-')) || rawText.includes('\n');
+            if (isBlock) {
+              return (
+                <div className="my-2 overflow-hidden rounded-lg border border-subtle bg-canvas">
+                  {onTryCode && (
+                    <div className="flex items-center justify-between border-b border-subtle/60 bg-surface/60 px-2.5 py-1">
+                      <span className="text-[10px] font-medium uppercase tracking-wider text-muted">
+                        Python
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => onTryCode(rawText)}
+                        className="flex items-center gap-1 rounded bg-accent/15 px-2 py-0.5 text-[10px] font-semibold text-accent hover:bg-accent/25"
+                      >
+                        <Play size={9} /> Probar en Python
+                      </button>
+                    </div>
+                  )}
+                  <code className="code-font block overflow-x-auto p-3 text-xs text-accent">
+                    {rawText}
+                  </code>
+                </div>
+              );
+            }
+            return (
+              <code className="code-font rounded bg-elevated px-1.5 py-0.5 text-[12px] text-accent">
+                {children}
+              </code>
+            );
+          },
+          blockquote: ({ children }) => (
+            <blockquote className="border-l-2 border-accent/60 pl-3 text-xs italic text-muted">
+              {children}
+            </blockquote>
+          ),
+          a: ({ href, children }) => {
+            if (href?.startsWith('#glossary:')) {
+              const term = decodeURIComponent(href.slice('#glossary:'.length));
+              const entry = glossary[term];
+              return (
+                <button
+                  type="button"
+                  onClick={() => entry && onTermClick(entry)}
+                  className="mx-0.5 border-b border-dotted border-accent text-accent hover:bg-accent/10"
+                >
+                  {children}
+                </button>
+              );
+            }
+            return (
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-accent underline hover:opacity-80"
+              >
+                {children}
+              </a>
+            );
+          },
+        }}
+      >
+        {markdown}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
 function ProseRenderer({
   block,
   glossary,
@@ -36,91 +153,18 @@ function ProseRenderer({
   onTermClick: (entry: GlossaryEntry) => void;
   onTryCode?: (code: string) => void;
 }) {
-  const markdown = useMemo(() => preprocessGlossaryLinks(block.markdown), [block.markdown]);
   const callout = block.callout;
   const calloutMeta = callout ? CALLOUT_META[callout.kind] ?? CALLOUT_META.BOOK_NOTE : null;
   const CalloutIcon = calloutMeta?.icon;
 
   return (
     <div className="space-y-3">
-      <div className="editorial-prose space-y-2.5 text-sm leading-relaxed text-primary">
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          rehypePlugins={[rehypeSanitize]}
-          components={{
-            p: ({ children }) => <p className="leading-relaxed text-primary">{children}</p>,
-            h1: ({ children }) => <h2 className="mt-3 text-base font-bold text-primary">{children}</h2>,
-            h2: ({ children }) => <h3 className="mt-2.5 text-sm font-bold text-primary">{children}</h3>,
-            h3: ({ children }) => <h4 className="mt-2 text-xs font-semibold uppercase tracking-wide text-accent">{children}</h4>,
-            ul: ({ children }) => <ul className="list-disc space-y-1 pl-5 text-sm text-primary">{children}</ul>,
-            ol: ({ children }) => <ol className="list-decimal space-y-1 pl-5 text-sm text-primary">{children}</ol>,
-            code: ({ children, className }) => {
-              const rawText = String(children).replace(/\n$/, '');
-              const isBlock = Boolean(className?.includes('language-')) || rawText.includes('\n');
-              if (isBlock) {
-                return (
-                  <div className="my-2 overflow-hidden rounded-lg border border-subtle bg-canvas">
-                    {onTryCode && (
-                      <div className="flex items-center justify-between border-b border-subtle/60 bg-surface/60 px-2.5 py-1">
-                        <span className="text-[10px] font-medium uppercase tracking-wider text-muted">
-                          Python
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => onTryCode(rawText)}
-                          className="flex items-center gap-1 rounded bg-accent/15 px-2 py-0.5 text-[10px] font-semibold text-accent hover:bg-accent/25"
-                        >
-                          <Play size={9} /> Probar en Python
-                        </button>
-                      </div>
-                    )}
-                    <code className="code-font block overflow-x-auto p-3 text-xs text-accent">
-                      {rawText}
-                    </code>
-                  </div>
-                );
-              }
-              return (
-                <code className="code-font rounded bg-elevated px-1.5 py-0.5 text-[12px] text-accent">
-                  {children}
-                </code>
-              );
-            },
-            blockquote: ({ children }) => (
-              <blockquote className="border-l-2 border-accent/60 pl-3 text-xs italic text-muted">
-                {children}
-              </blockquote>
-            ),
-            a: ({ href, children }) => {
-              if (href?.startsWith('#glossary:')) {
-                const term = decodeURIComponent(href.slice('#glossary:'.length));
-                const entry = glossary[term];
-                return (
-                  <button
-                    type="button"
-                    onClick={() => entry && onTermClick(entry)}
-                    className="mx-0.5 border-b border-dotted border-accent text-accent hover:bg-accent/10"
-                  >
-                    {children}
-                  </button>
-                );
-              }
-              return (
-                <a
-                  href={href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-accent underline hover:opacity-80"
-                >
-                  {children}
-                </a>
-              );
-            },
-          }}
-        >
-          {markdown}
-        </ReactMarkdown>
-      </div>
+      <RichMarkdown
+        content={block.markdown}
+        glossary={glossary}
+        onTermClick={onTermClick}
+        onTryCode={onTryCode}
+      />
       {callout && calloutMeta && CalloutIcon && (
         <div className={cn('rounded-md border p-3', calloutMeta.className)}>
           <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold">
@@ -163,82 +207,163 @@ export function EditorialReader({
   unlockedBlockIndex,
   learningObjectives,
   takeaways,
+  sourceBookMarkdown,
+  sourcePageRange,
   onTryCode,
+  onRecompileBook,
 }: {
   cartridge: BookCartridge;
   blocks: LessonBlock[];
   unlockedBlockIndex: number;
   learningObjectives?: string[];
   takeaways?: string[];
+  sourceBookMarkdown?: string;
+  sourcePageRange?: string;
   onTryCode?: (code: string) => void;
+  onRecompileBook?: () => void;
 }) {
   const setActiveGlossaryTerm = usePlatformStore((s) => s.setActiveGlossaryTerm);
+  const [readerTab, setReaderTab] = useState<ReaderTab>('COMBINED');
 
-  const visibleBlocks = useMemo(
-    () => blocks.slice(0, Math.min(unlockedBlockIndex + 1, blocks.length)),
-    [blocks, unlockedBlockIndex]
-  );
-  const proseCount = visibleBlocks.filter((b) => b.type === 'PROSE' || b.type === 'YOUTUBE_REF').length;
+  // Siempre mostrar al menos los bloques PROSE/YOUTUBE introductorios desde el Paso 1
+  const visibleBlocks = useMemo(() => {
+    const firstProseIdx = blocks.findIndex((b) => b.type === 'PROSE' || b.type === 'YOUTUBE_REF');
+    const minReveal = firstProseIdx >= 0 ? Math.max(unlockedBlockIndex, firstProseIdx) : unlockedBlockIndex;
+    return blocks.slice(0, Math.min(minReveal + 1, blocks.length));
+  }, [blocks, unlockedBlockIndex]);
+
+  const proseBlocks = visibleBlocks.filter((b) => b.type === 'PROSE' || b.type === 'YOUTUBE_REF');
   const isLessonEndReached = unlockedBlockIndex >= blocks.length - 1;
+  const hasBookSource = Boolean(sourceBookMarkdown && sourceBookMarkdown.trim().length > 0);
 
   return (
-    <div className="h-full overflow-y-auto p-4 sm:p-5">
-      <div className="space-y-4">
-        {learningObjectives && learningObjectives.length > 0 && (
-          <div className="rounded-xl border border-accent/30 bg-accent/5 p-3">
-            <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-accent">
-              <Target size={12} /> Objetivos de esta leccion
-            </p>
-            <ul className="space-y-1 text-xs text-primary">
-              {learningObjectives.map((obj, idx) => (
-                <li key={idx} className="flex items-start gap-1.5">
-                  <span className="text-accent">•</span>
-                  <span>{obj}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+    <div className="flex h-full flex-col overflow-hidden">
+      {/* Barra de lectura Libro Original / Guía Interactiva */}
+      <div className="flex items-center justify-between gap-2 border-b border-subtle bg-surface/40 px-3 py-1.5">
+        <div className="flex items-center gap-1">
+          {([
+            { id: 'COMBINED' as const, label: 'Libro + Guía', icon: BookOpen },
+            { id: 'BOOK' as const, label: 'Libro Original', icon: BookText },
+            { id: 'GUIDE' as const, label: 'Guía IA', icon: Sparkles },
+          ]).map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setReaderTab(t.id)}
+              className={cn(
+                'flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold transition-colors',
+                readerTab === t.id
+                  ? 'bg-accent/15 text-accent'
+                  : 'text-muted hover:text-primary'
+              )}
+            >
+              <t.icon size={11} />
+              {t.label}
+            </button>
+          ))}
+        </div>
+        {sourcePageRange && (
+          <span className="rounded-full border border-subtle bg-canvas px-2 py-0.5 text-[10px] text-muted">
+            {sourcePageRange}
+          </span>
         )}
+      </div>
 
-        {visibleBlocks.map((block) => {
-          if (block.type === 'PROSE') {
-            return (
-              <ProseRenderer
-                key={block.blockId}
-                block={block}
-                glossary={cartridge.glossary}
-                onTermClick={setActiveGlossaryTerm}
-                onTryCode={onTryCode}
-              />
-            );
-          }
-          if (block.type === 'YOUTUBE_REF') {
-            return <YouTubeRefRenderer key={block.blockId} block={block} />;
-          }
-          return null;
-        })}
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+        <div className="space-y-5">
+          {/* Guía Interactiva / Objetivos */}
+          {(readerTab === 'COMBINED' || readerTab === 'GUIDE') && (
+            <div className="space-y-4">
+              {learningObjectives && learningObjectives.length > 0 && (
+                <div className="rounded-xl border border-accent/30 bg-accent/5 p-3">
+                  <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-accent">
+                    <Target size={12} /> Objetivos de esta leccion
+                  </p>
+                  <ul className="space-y-1 text-xs text-primary">
+                    {learningObjectives.map((obj, idx) => (
+                      <li key={idx} className="flex items-start gap-1.5">
+                        <span className="text-accent">•</span>
+                        <span>{obj}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
-        {proseCount === 0 && (
-          <div className="rounded-xl border border-subtle bg-surface/60 p-4 text-xs text-muted">
-            Completa el reto interactivo del panel derecho para desbloquear las notas y el siguiente concepto de esta leccion.
-          </div>
-        )}
+              {proseBlocks.map((block) => {
+                if (block.type === 'PROSE') {
+                  return (
+                    <ProseRenderer
+                      key={block.blockId}
+                      block={block}
+                      glossary={cartridge.glossary}
+                      onTermClick={setActiveGlossaryTerm}
+                      onTryCode={onTryCode}
+                    />
+                  );
+                }
+                if (block.type === 'YOUTUBE_REF') {
+                  return <YouTubeRefRenderer key={block.blockId} block={block} />;
+                }
+                return null;
+              })}
+            </div>
+          )}
 
-        {isLessonEndReached && takeaways && takeaways.length > 0 && (
-          <div className="rounded-xl border border-success/40 bg-success/5 p-3">
-            <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-success">
-              <CheckCircle2 size={12} /> Puntos clave del modulo
-            </p>
-            <ul className="space-y-1 text-xs text-primary">
-              {takeaways.map((item, idx) => (
-                <li key={idx} className="flex items-start gap-1.5">
-                  <span className="text-success">✓</span>
-                  <span>{item}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+          {/* Texto Real del Libro Original */}
+          {(readerTab === 'COMBINED' || readerTab === 'BOOK') && (
+            <div className="rounded-xl border border-subtle bg-surface/40 p-4">
+              <div className="mb-3 flex items-center justify-between border-b border-subtle pb-2">
+                <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-secondary">
+                  <BookText size={13} /> Texto del Libro Original
+                </span>
+                {sourcePageRange && (
+                  <span className="text-[10px] text-muted">{sourcePageRange}</span>
+                )}
+              </div>
+
+              {hasBookSource && sourceBookMarkdown ? (
+                <RichMarkdown
+                  content={sourceBookMarkdown}
+                  glossary={cartridge.glossary}
+                  onTermClick={setActiveGlossaryTerm}
+                  onTryCode={onTryCode}
+                />
+              ) : (
+                <div className="space-y-2 text-xs text-muted">
+                  <p>
+                    Esta lección fue compilada antes de activar el visor íntegro del libro original (o pertenece a un cartucho resumido).
+                  </p>
+                  {onRecompileBook && (
+                    <button
+                      type="button"
+                      onClick={onRecompileBook}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 text-[11px] font-semibold text-accent hover:bg-accent/20"
+                    >
+                      <RefreshCw size={12} /> Re-compilar libro para incluir páginas completas
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {isLessonEndReached && takeaways && takeaways.length > 0 && (
+            <div className="rounded-xl border border-success/40 bg-success/5 p-3">
+              <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-success">
+                <CheckCircle2 size={12} /> Puntos clave del modulo
+              </p>
+              <ul className="space-y-1 text-xs text-primary">
+                {takeaways.map((item, idx) => (
+                  <li key={idx} className="flex items-start gap-1.5">
+                    <span className="text-success">✓</span>
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

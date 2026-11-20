@@ -39,11 +39,15 @@ vi.mock('./db/dexieDb', () => {
 });
 
 import {
+  formatBookSourceMarkdown,
   repairCartridgeForRuntime,
   sanitizeBlock,
   sanitizeLesson,
 } from './engine/compiler/lessonSanitizer';
-import { coerceChaptersIndex } from './engine/compiler/metadataTocExtractor';
+import {
+  coerceChaptersIndex,
+  segmentBookByIndex,
+} from './engine/compiler/metadataTocExtractor';
 import { usePlatformStore } from './store/usePlatformStore';
 import type { BookCartridge } from './types/cartridge.types';
 
@@ -169,6 +173,115 @@ describe('Compiled book resilience & E2E opening flow', () => {
     );
     expect(chapters).toHaveLength(2);
     expect(chapters.map((c) => c.chapterNumber)).toEqual([1, 2]);
+  });
+
+  it('preserves full sourceBookMarkdown and sourcePageRange even when LLM already returned PROSE', () => {
+    const cleanSource = [
+      '--- page 12 ---',
+      '1.2 Variables y Tipos en Python',
+      'En Python no necesitas declarar tipos manualmente.',
+      '>>> edad = 25',
+      '>>> print(edad * 2)',
+      '50',
+      '--- page 13 ---',
+      'Puedes reasignar una variable en tiempo de ejecución sin errores.',
+    ].join('\n');
+
+    const formatted = formatBookSourceMarkdown(cleanSource);
+    expect(formatted.pageRange).toBe('Págs. 12–13');
+    expect(formatted.markdown).toContain('```python');
+    expect(formatted.markdown).toContain('edad = 25');
+
+    const lesson = sanitizeLesson(
+      {
+        lessonId: 'sec-vars',
+        title: 'Variables',
+        blocks: [
+          {
+            blockId: 'p1',
+            type: 'PROSE',
+            markdown: 'Resumen corto generado por la IA.',
+          },
+          {
+            blockId: 'f1',
+            type: 'FLASHCARD',
+            front: '¿Qué es una variable?',
+            back: 'Una referencia a un valor en memoria.',
+          },
+        ],
+      },
+      {
+        sectionTitle: 'Variables y Tipos',
+        cleanText: cleanSource,
+        order: 1,
+      }
+    );
+
+    expect(lesson.sourcePageRange).toBe('Págs. 12–13');
+    expect(lesson.sourceBookMarkdown).toContain('En Python no necesitas declarar tipos manualmente.');
+    expect(lesson.sourceBookMarkdown).toContain('Puedes reasignar una variable en tiempo de ejecución');
+    expect(lesson.sourceBookMarkdown).toContain('```python');
+
+    const repaired = repairCartridgeForRuntime({
+      bookId: 'book-with-source',
+      metadata: { title: 'Python Libro Real', authors: ['Autor'] },
+      chapters: [
+        {
+          number: 1,
+          title: 'Fundamentos',
+          microLessons: [lesson],
+        },
+      ],
+    });
+
+    expect(repaired).not.toBeNull();
+    const repairedLesson = repaired!.chapters[0].microLessons[0];
+    expect(repairedLesson.sourceBookMarkdown).toBe(lesson.sourceBookMarkdown);
+    expect(repairedLesson.sourcePageRange).toBe('Págs. 12–13');
+  });
+
+  it('skips Table of Contents entries in segmentBookByIndex and slices the actual chapter body', () => {
+    const rawBook = [
+      '--- page 1 ---',
+      'Table of Contents',
+      'Chapter 1: Getting Started ....... 4',
+      'Chapter 2: Functions and Scope ....... 8',
+      '--- page 2 ---',
+      'Preface',
+      'Welcome to this practical programming guide designed for builders and engineers.',
+      '--- page 3 ---',
+      'How to use the exercises and interactive code blocks in every chapter of this book.',
+      '--- page 4 ---',
+      'Chapter 1: Getting Started',
+      'This is the real body of Chapter 1 with detailed explanations and code examples.',
+      'Python executes statements sequentially from top to bottom inside a script file.',
+      'x = 42',
+      'print(x)',
+      '--- page 5 ---',
+      'More real content from Chapter 1 explaining expressions, variables, and statements in depth so readers master the core syntax before moving forward.',
+      '--- page 8 ---',
+      'Chapter 2: Functions and Scope',
+      'Functions encapsulate reusable logic and create local variable scopes isolated from globals.',
+      'def greet(name: str) -> str:',
+      '    return f"Hello, {name}"',
+      'When you invoke greet("Ada"), Python allocates a fresh stack frame for local bindings and cleans it up upon return.',
+    ].join('\n');
+
+    const chaptersIndex = coerceChaptersIndex(
+      [
+        { chapterNumber: 1, title: 'Chapter 1: Getting Started', startPage: 4, endPage: 7 },
+        { chapterNumber: 2, title: 'Chapter 2: Functions and Scope', startPage: 8, endPage: 10 },
+      ],
+      rawBook.length,
+      10
+    );
+
+    const chunks = segmentBookByIndex(rawBook, chaptersIndex);
+    expect(chunks.length).toBeGreaterThanOrEqual(2);
+    expect(chunks[0].text).toContain('This is the real body of Chapter 1');
+    expect(chunks[0].text).not.toContain('....... 4');
+    expect(chunks[1].text).toContain('Functions encapsulate reusable logic');
+    expect(chunks[1].text).not.toContain('....... 8');
   });
 });
 

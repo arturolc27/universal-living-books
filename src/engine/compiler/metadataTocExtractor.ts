@@ -557,38 +557,95 @@ function normalizeForMatch(value: string): string {
     .trim();
 }
 
-/** Localiza la posicion (offset) del titulo o pagina inicial de un capitulo dentro del texto. */
-function findChapterAnchor(text: string, chapter: ChapterIndexEntry): number {
+function findPageMarkerOffsets(text: string): Array<{ page: number; index: number }> {
+  const result: Array<{ page: number; index: number }> = [];
+  const re = new RegExp(PAGE_MARKER_PATTERN.source, 'gi');
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    result.push({ page: Number(m[1]), index: m.index });
+  }
+  return result;
+}
+
+function isLikelyTocLine(text: string, matchIndex: number): boolean {
+  const lineStart = text.lastIndexOf('\n', matchIndex) + 1;
+  const lineEnd = text.indexOf('\n', matchIndex);
+  const line = text.slice(lineStart, lineEnd === -1 ? text.length : lineEnd).trim();
+  // Lineas tipicas de indice: "Chapter 1: Intro ....... 15" o "1. Intro 15"
+  if (/\.{2,}\s*\d+\s*$/.test(line)) return true;
+  if (/\s{2,}\d{1,4}\s*$/.test(line) && line.length < 110) return true;
+  return false;
+}
+
+function approximateOriginalOffset(
+  text: string,
+  normalizedTitle: string,
+  startFrom = 0
+): number {
+  const words = normalizedTitle.split(' ').filter(Boolean).slice(0, 5);
+  if (words.length === 0) return -1;
+  const pattern = new RegExp(
+    words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s\\S]{0,40}'),
+    'gi'
+  );
+  pattern.lastIndex = Math.max(0, startFrom);
+
+  let firstNonToc = -1;
+  let fallback = -1;
+  let m: RegExpExecArray | null;
+  while ((m = pattern.exec(text)) !== null) {
+    if (fallback === -1) fallback = m.index;
+    if (!isLikelyTocLine(text, m.index)) {
+      firstNonToc = m.index;
+      break;
+    }
+  }
+  return firstNonToc >= 0 ? firstNonToc : fallback;
+}
+
+/** Localiza la posicion real del capitulo en el cuerpo del libro, saltando el indice (TOC). */
+function findChapterAnchor(
+  text: string,
+  chapter: ChapterIndexEntry,
+  tocCutoffIndex = 0,
+  pageOffset = 0
+): number {
   const normalizedTitle = normalizeForMatch(chapter.title);
+
+  // 1. Buscar titulo fuera de la zona de TOC y evitando lineas con puntos/paginacion
   if (normalizedTitle) {
-    const haystack = normalizeForMatch(text);
-    const direct = haystack.indexOf(normalizedTitle);
-    if (direct >= 0) {
-      return approximateOriginalOffset(text, normalizedTitle);
+    const afterToc = approximateOriginalOffset(text, normalizedTitle, tocCutoffIndex);
+    if (afterToc >= 0) return afterToc;
+    if (tocCutoffIndex > 0) {
+      const anywhereNonToc = approximateOriginalOffset(text, normalizedTitle, 0);
+      if (anywhereNonToc >= 0 && !isLikelyTocLine(text, anywhereNonToc)) {
+        return anywhereNonToc;
+      }
     }
   }
 
-  // Fallback 1: buscar "chapter N" / "capitulo N".
-  const chapterPattern = new RegExp(`(?:chapter|capitulo|capítulo)\\s+${chapter.chapterNumber}\\b`, 'i');
-  const match = chapterPattern.exec(text);
-  if (match) return match.index;
+  // 2. Buscar "Chapter N" / "Capitulo N" fuera del TOC
+  const chapterPattern = new RegExp(
+    `(?:^|\\n)\\s*(?:chapter|capitulo|capítulo)\\s+${chapter.chapterNumber}\\b`,
+    'gi'
+  );
+  chapterPattern.lastIndex = Math.max(0, tocCutoffIndex);
+  let chMatch: RegExpExecArray | null;
+  while ((chMatch = chapterPattern.exec(text)) !== null) {
+    if (!isLikelyTocLine(text, chMatch.index)) {
+      return chMatch.index;
+    }
+  }
 
-  // Fallback 2: marcador de pagina real `--- page N ---` cuando startPage > 0
+  // 3. Fallback por marcador de pagina real `--- page N ---` calibrado con pageOffset
   if (chapter.startPage > 0) {
-    const pageMarker = new RegExp(`(?:^|\\n)\\s*-{2,}\\s*page\\s+${chapter.startPage}\\s*-{2,}`, 'i');
+    const targetPage = Math.max(1, chapter.startPage + pageOffset);
+    const pageMarker = new RegExp(`(?:^|\\n)\\s*-{2,}\\s*page\\s+${targetPage}\\s*-{2,}`, 'i');
     const pageMatch = pageMarker.exec(text);
     if (pageMatch) return pageMatch.index;
   }
 
   return -1;
-}
-
-function approximateOriginalOffset(text: string, normalizedTitle: string): number {
-  const words = normalizedTitle.split(' ').filter(Boolean).slice(0, 4);
-  if (words.length === 0) return -1;
-  const pattern = new RegExp(words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s\\S]{0,40}'), 'i');
-  const match = pattern.exec(text);
-  return match ? match.index : -1;
 }
 
 interface SubHeading {
@@ -667,7 +724,7 @@ export function splitChapterIntoMicroLessons(
 
   const groups = splitByParagraphs(cleanBody, desired);
   groups.forEach((group, i) => {
-    const firstLine = group.split('\n').find((l) => l.trim().length > 0) ?? '';
+    const firstLine = group.split('\n').find((l) => l.trim().length > 0 && !/^-{2,}\s*page\s+\d+/i.test(l.trim())) ?? '';
     const title = firstLine.trim().slice(0, 70) || `${chapterTitle} (${i + 1})`;
     pushChunk(title, group, i + 1);
   });
@@ -683,7 +740,7 @@ export interface SegmentBookOptions {
 
 /**
  * Corta el libro completo en micro-lecciones usando el Indice Maestro detectado.
- * Devuelve 4 a 8 micro-lecciones por capitulo (nunca 27 fragmentos sueltos).
+ * Salta la zona del Table of Contents y calibra el desfase de paginas PDF vs impresas.
  */
 export function segmentBookByIndex(
   rawText: string,
@@ -695,10 +752,34 @@ export function segmentBookByIndex(
     ? new Set(options.selectedChapterNumbers)
     : null;
 
+  const pageMarkers = findPageMarkerOffsets(text);
+  // Si el libro tiene mas de 20 paginas, el TOC suele vivir en las primeras ~12 paginas
+  let tocCutoffIndex = 0;
+  if (pageMarkers.length >= 20) {
+    const skipPages = Math.min(12, Math.floor(pageMarkers.length * 0.12));
+    tocCutoffIndex = pageMarkers[skipPages]?.index ?? 0;
+  }
+
   const ordered = [...chaptersIndex].sort((a, b) => a.chapterNumber - b.chapterNumber);
+
+  // Calibrar pageOffset usando el primer capitulo localizado por titulo
+  let calibratedPageOffset = 0;
+  for (const ch of ordered) {
+    if (ch.startPage > 0) {
+      const pos = findChapterAnchor(text, ch, tocCutoffIndex, 0);
+      if (pos >= 0 && pageMarkers.length > 0) {
+        const markerBefore = [...pageMarkers].reverse().find((m) => m.index <= pos);
+        if (markerBefore) {
+          calibratedPageOffset = markerBefore.page - ch.startPage;
+          break;
+        }
+      }
+    }
+  }
+
   const anchors = ordered.map((chapter) => ({
     chapter,
-    pos: findChapterAnchor(text, chapter),
+    pos: findChapterAnchor(text, chapter, tocCutoffIndex, calibratedPageOffset),
   }));
 
   const located = anchors.filter((a) => a.pos >= 0).sort((a, b) => a.pos - b.pos);
@@ -706,7 +787,7 @@ export function segmentBookByIndex(
 
   if (located.length === 0) {
     options.onLog?.('Segmentador: no se hallaron anclas de capitulo; usando reparto proporcional.');
-    return segmentByProportionalSplit(text, ordered, selected, options);
+    return segmentByProportionalSplit(text.slice(tocCutoffIndex), ordered, selected, options);
   }
 
   for (let i = 0; i < located.length; i += 1) {

@@ -9,15 +9,15 @@ export function buildCompilerSystemInstruction(targetLanguage: 'es' | 'en' = 'es
       : 'LANGUAGE: Write titles, prose, explanations, prompts, and flashcards in the ORIGINAL ENGLISH of the source text (keep Python code intact).';
 
   return `Eres un Disenador Instruccional y Compilador EdTech de alta precision.
-Transformas una subseccion de un libro tecnico de Python en una MicroLesson JSON estructurada, rica y 100% interactiva.
+Tu mision NO es reemplazar el libro: el texto integro del libro ("cleanText") ya se muestra al estudiante. Tu trabajo es COMPLEMENTAR y POTENCIAR esta seccion del libro con interactividad real.
 
 ${langDirective}
 
 REGLAS ESTRICTAS DE FORMATO:
 1. Emite EXCLUSIVAMENTE un objeto JSON valido (sin markdown ni texto fuera del JSON).
 2. Usa SIEMPRE los nombres de campo exactos definidos abajo.
-3. Toda MicroLesson DEBE comenzar con al menos 1 o 2 bloques "PROSE" ricos (120 a 220 palabras en total) que expliquen el contenido REAL de "cleanText", con ejemplos en bloques \`\`\`python\`\`\` y terminos clave en [[termino]].
-4. Todo bloque de ejercicio DEBE incluir codigo real y completo en "codeSnippet" / "starterCode" (NUNCA vacio ni placeholders).
+3. Toda MicroLesson DEBE comenzar con al menos 1 o 2 bloques "PROSE" de guia editorial (120 a 220 palabras) que contextualicen los conceptos clave de "cleanText", expliquen trampas comunes con callouts y marquen terminos tecnicos en [[termino]].
+4. Todo ejercicio (OUTPUT_PREDICTION, INTERACTIVE_VISUALIZER, SYNTAX_CLOZE, PARSONS_PROBLEM, CODE_LAB) DEBE derivarse directamente de los ejemplos, variables y temas reales de "cleanText" (NUNCA inventes ejercicios genericos desconectados del libro ni dejes codigo vacio).
 5. Usa "sectionTitle" recibido como titulo real de la leccion (o traduccion fiel al idioma elegido).
 
 CONTRATO EXACTO DE CAMPOS POR TIPO DE BLOQUE:
@@ -239,7 +239,14 @@ STRICT RULES:
 
   const cleaned = rawOut.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
   const parsed = JSON.parse(cleaned) as unknown;
-  return sanitizeLesson(parsed, { sectionTitle: lesson.title, order: lesson.order });
+  const translated = sanitizeLesson(parsed, { sectionTitle: lesson.title, order: lesson.order });
+  if (lesson.sourceBookMarkdown && !translated.sourceBookMarkdown) {
+    translated.sourceBookMarkdown = lesson.sourceBookMarkdown;
+  }
+  if (lesson.sourcePageRange && !translated.sourcePageRange) {
+    translated.sourcePageRange = lesson.sourcePageRange;
+  }
+  return translated;
 }
 
 export interface CompileBookMeta {

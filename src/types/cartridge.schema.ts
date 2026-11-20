@@ -330,6 +330,8 @@ export const MicroLessonSchema = z.object({
   estimatedMinutes: z.number().positive(),
   learningObjectives: z.array(z.string()).optional(),
   takeaways: z.array(z.string()).optional(),
+  sourceBookMarkdown: z.string().optional(),
+  sourcePageRange: z.string().optional(),
   blocks: z.array(LessonBlockSchema).min(1),
 });
 

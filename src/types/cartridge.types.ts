@@ -323,6 +323,10 @@ export interface MicroLesson {
   estimatedMinutes: number;
   learningObjectives?: string[];
   takeaways?: string[];
+  /** Texto real de esta seccion extraido del libro original (en Markdown limpio). */
+  sourceBookMarkdown?: string;
+  /** Rango de paginas reales del libro original (ej. "Pags. 24-29"). */
+  sourcePageRange?: string;
   blocks: LessonBlock[];
 }
 
