@@ -61,7 +61,7 @@ export function BookLibraryHub() {
         <div className="mx-auto max-w-6xl">
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
             <span className="inline-flex items-center gap-1.5 rounded-full border border-subtle bg-surface/60 px-3 py-1 text-[11px] text-muted">
-              <Sparkles size={12} className="text-accent" /> Motor Universal de Libros Vivos v2.0
+              <Sparkles size={12} className="text-accent" /> Motor Universal de Libros Vivos v2.1
             </span>
             <h1 className="mt-3 text-2xl font-bold tracking-tight text-primary sm:mt-4 sm:text-4xl">
               Tu biblioteca <span className="gradient-text">interactiva</span> de Python
