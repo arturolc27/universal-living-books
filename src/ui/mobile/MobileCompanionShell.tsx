@@ -145,7 +145,10 @@ export function MobileCompanionShell() {
         )}
       </div>
 
-      <nav className="glass flex items-center justify-around border-t border-subtle py-1.5">
+      <nav
+        className="glass flex items-center justify-around border-t border-subtle pt-1.5"
+        style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
+      >
         {tabs.map((tab) => (
           <button
             key={tab.id}
@@ -155,11 +158,11 @@ export function MobileCompanionShell() {
               setMobileTab(tab.id);
             }}
             className={cn(
-              'flex flex-col items-center gap-0.5 rounded-xl px-4 py-1.5 text-[10px] transition-colors',
+              'flex min-h-[44px] min-w-[64px] flex-col items-center justify-center gap-0.5 rounded-xl px-3 py-1.5 text-[11px] font-medium transition-colors',
               !showSyllabus && mobileTab === tab.id ? 'bg-accent/15 text-accent' : 'text-muted'
             )}
           >
-            <tab.icon size={17} />
+            <tab.icon size={18} />
             {tab.label}
           </button>
         ))}

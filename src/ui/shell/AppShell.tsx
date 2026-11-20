@@ -82,16 +82,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-canvas">
-      <header className="glass z-40 flex items-center gap-3 border-b border-subtle px-4 py-2.5">
+      <header className="glass z-40 flex items-center gap-2 border-b border-subtle px-3 py-2 sm:gap-3 sm:px-4 sm:py-2.5">
         <button
           type="button"
           onClick={closeBook}
-          className="flex items-center gap-2 rounded-lg px-2 py-1 transition-colors hover:bg-elevated/60"
+          className="flex shrink-0 items-center gap-2 rounded-lg px-1.5 py-1 transition-colors hover:bg-elevated/60"
         >
           <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-accent to-accent-secondary text-sm">
             📚
           </span>
-          <span className="hidden text-sm font-semibold text-primary sm:block">
+          <span className="text-sm font-semibold text-primary">
             Living<span className="gradient-text">Books</span>
           </span>
         </button>
@@ -106,17 +106,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <button
           type="button"
           onClick={() => setCommandPaletteOpen(true)}
-          className="ml-auto flex items-center gap-2 rounded-lg border border-subtle bg-surface/60 px-3 py-1.5 text-xs text-muted transition-colors hover:border-accent/50 hover:text-primary"
+          aria-label="Buscar o saltar"
+          className="ml-auto flex items-center gap-2 rounded-lg border border-subtle bg-surface/60 p-2 text-xs text-muted transition-colors hover:border-accent/50 hover:text-primary sm:px-3 sm:py-1.5"
         >
-          <Search size={13} />
+          <Search size={14} />
           <span className="hidden sm:block">Buscar o saltar a...</span>
           <kbd className="hidden items-center gap-0.5 rounded border border-subtle px-1.5 py-0.5 text-[10px] sm:flex">
             <Command size={9} /> K
           </kbd>
         </button>
 
-        <div className="flex items-center gap-1.5">
-          <span className="flex items-center gap-1 rounded-full bg-elevated px-2.5 py-1 text-[11px] font-medium text-secondary">
+        <div className="flex shrink-0 items-center gap-1.5">
+          <span className="flex items-center gap-1 rounded-full bg-elevated px-2 py-1 text-[11px] font-medium text-secondary sm:px-2.5">
             <Flame size={12} /> {userStats.currentStreakDays}d
           </span>
           <span className="hidden items-center gap-1 rounded-full bg-elevated px-2.5 py-1 text-[11px] font-medium text-accent sm:flex">
@@ -127,7 +128,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </span>
         </div>
 
-        <div className="flex items-center gap-1 rounded-lg border border-subtle p-0.5">
+        <div className="hidden items-center gap-1 rounded-lg border border-subtle p-0.5 md:flex">
           <button
             type="button"
             onClick={() => setViewMode('DESKTOP_STUDIO')}
@@ -154,10 +155,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         {isOffline && (
           <span
-            className="flex items-center gap-1 rounded-full border border-secondary/40 bg-secondary/10 px-2.5 py-1 text-[10px] font-semibold text-secondary"
+            className="flex shrink-0 items-center gap-1 rounded-full border border-secondary/40 bg-secondary/10 px-2 py-1 text-[10px] font-semibold text-secondary"
             title="Trabajando sin conexión (PWA Offline)"
           >
-            <WifiOff size={11} /> Offline
+            <WifiOff size={11} />
+            <span className="hidden sm:inline">Offline</span>
           </span>
         )}
 
@@ -169,10 +171,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               await installPrompt.userChoice;
               setInstallPrompt(null);
             }}
-            className="flex items-center gap-1 rounded-lg border border-accent/40 bg-accent/10 px-2.5 py-1 text-[11px] font-semibold text-accent hover:bg-accent/20"
+            className="flex shrink-0 items-center gap-1 rounded-lg border border-accent/40 bg-accent/10 p-2 text-[11px] font-semibold text-accent hover:bg-accent/20 sm:px-2.5 sm:py-1"
             title="Instalar app para uso offline"
           >
-            <Download size={12} />
+            <Download size={13} />
             <span className="hidden sm:inline">Instalar App</span>
           </button>
         )}
@@ -182,7 +184,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <button
           type="button"
           onClick={() => setCompilerOpen(true)}
-          className="flex items-center gap-1.5 rounded-lg border border-subtle px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:border-accent/50"
+          className="hidden items-center gap-1.5 rounded-lg border border-subtle px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:border-accent/50 sm:flex"
           title="Compilar un libro"
         >
           <Wand2 size={13} />
@@ -192,7 +194,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <button
           type="button"
           onClick={() => setShowImporter(true)}
-          className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-canvas transition-transform hover:scale-[1.03]"
+          className="hidden items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-canvas transition-transform hover:scale-[1.03] sm:flex"
         >
           <Upload size={13} />
           <span className="hidden sm:block">Importar</span>
@@ -201,7 +203,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <button
           type="button"
           onClick={() => setSettingsOpen(true)}
-          className="rounded-lg border border-subtle p-1.5 text-muted transition-colors hover:border-accent/50 hover:text-primary"
+          aria-label="Configuracion"
+          className="shrink-0 rounded-lg border border-subtle p-2 text-muted transition-colors hover:border-accent/50 hover:text-primary sm:p-1.5"
           title="Configuracion"
         >
           <Settings size={15} />

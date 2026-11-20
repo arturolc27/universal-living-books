@@ -57,30 +57,30 @@ export function BookLibraryHub() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="hero-mesh border-b border-subtle px-6 py-10">
+      <div className="hero-mesh border-b border-subtle px-4 py-6 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-6xl">
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
             <span className="inline-flex items-center gap-1.5 rounded-full border border-subtle bg-surface/60 px-3 py-1 text-[11px] text-muted">
               <Sparkles size={12} className="text-accent" /> Motor Universal de Libros Vivos v2.0
             </span>
-            <h1 className="mt-4 text-3xl font-bold tracking-tight text-primary sm:text-4xl">
+            <h1 className="mt-3 text-2xl font-bold tracking-tight text-primary sm:mt-4 sm:text-4xl">
               Tu biblioteca <span className="gradient-text">interactiva</span> de Python
             </h1>
-            <p className="mt-2 max-w-2xl text-sm text-muted">
-              Libros tecnicos compilados en laboratorios vivos: traza memoria, audita el AST, procesa datos reales y repasa con SM-2. Todo offline, todo a un clic.
+            <p className="mt-1.5 max-w-2xl text-xs leading-relaxed text-muted sm:mt-2 sm:text-sm">
+              Cursos interactivos offline: lee conceptos, practica sintaxis rápida en móvil y domina laboratorios en PC.
             </p>
-            <div className="mt-4 flex flex-wrap gap-2">
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
               <button
                 type="button"
                 onClick={() => setShowCompiler(true)}
-                className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-canvas transition-transform hover:scale-[1.03]"
+                className="flex items-center justify-center gap-1.5 rounded-xl bg-accent px-3 py-2.5 text-xs font-semibold text-canvas transition-transform hover:scale-[1.03] sm:rounded-lg sm:px-4 sm:py-2"
               >
-                <Wand2 size={14} /> Compilar Nuevo Libro (Multi-Agente)
+                <Wand2 size={14} /> <span className="truncate">Compilar Libro</span>
               </button>
               <button
                 type="button"
                 onClick={() => setShowImporter(true)}
-                className="flex items-center gap-1.5 rounded-lg border border-subtle px-4 py-2 text-xs font-medium text-primary transition-colors hover:border-accent/50"
+                className="flex items-center justify-center gap-1.5 rounded-xl border border-subtle px-3 py-2.5 text-xs font-medium text-primary transition-colors hover:border-accent/50 sm:rounded-lg sm:px-4 sm:py-2"
               >
                 <Plus size={14} /> Importar JSON
               </button>
