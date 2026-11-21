@@ -3,6 +3,8 @@ import { zlibSync, unzlibSync, strToU8, strFromU8 } from 'fflate';
 import type { PcLabQueueItem } from '../store/usePlatformStore';
 import {
   livingBooksDb,
+  type DeepDiveCacheRecord,
+  type ExerciseBankRecord,
   type GlobalCompetencyMasteryRecord,
   type LearningTelemetryRecord,
   type LessonProgressRecord,
@@ -24,6 +26,9 @@ export interface SyncDeltaSnapshot {
   pcLabQueue?: PcLabQueueItem[];
   globalCompetencyMastery?: GlobalCompetencyMasteryRecord[];
   learningTelemetry?: LearningTelemetryRecord[];
+  aiExercises?: ExerciseBankRecord[];
+  deepDiveCache?: DeepDiveCacheRecord[];
+  deletedBookIds?: Record<string, number>;
 }
 
 export interface SupabaseSyncConfig {
@@ -96,6 +101,8 @@ export async function exportSyncSnapshot(deviceTag = 'living-book-client'): Prom
     userStats,
     globalCompetencyMastery,
     telemetryAll,
+    aiExercises,
+    deepDiveCache,
   ] = await Promise.all([
     livingBooksDb.lessonProgress.toArray(),
     livingBooksDb.srsCardsState.toArray(),
@@ -107,6 +114,16 @@ export async function exportSyncSnapshot(deviceTag = 'living-book-client'): Prom
       : Promise.resolve([]),
     livingBooksDb.learningTelemetry
       ? livingBooksDb.learningTelemetry.toArray().catch(() => [])
+      : Promise.resolve([]),
+    livingBooksDb.exerciseBank
+      ? livingBooksDb.exerciseBank
+          .where('origin')
+          .equals('AI_GENERATED')
+          .toArray()
+          .catch(() => [])
+      : Promise.resolve([]),
+    livingBooksDb.deepDiveCache
+      ? livingBooksDb.deepDiveCache.toArray().catch(() => [])
       : Promise.resolve([]),
   ]);
 
@@ -122,6 +139,8 @@ export async function exportSyncSnapshot(deviceTag = 'living-book-client'): Prom
     pcLabQueue: readPcLabQueue(),
     globalCompetencyMastery,
     learningTelemetry: telemetryAll.slice(-500),
+    aiExercises,
+    deepDiveCache,
   };
 
   return JSON.stringify(payload, null, 2);
@@ -172,6 +191,8 @@ export async function importSyncSnapshot(
       livingBooksDb.userStats,
       livingBooksDb.globalCompetencyMastery,
       livingBooksDb.learningTelemetry,
+      livingBooksDb.exerciseBank,
+      livingBooksDb.deepDiveCache,
     ],
     async () => {
       for (const incoming of snapshot.lessonProgress ?? []) {
@@ -219,6 +240,22 @@ export async function importSyncSnapshot(
         const current = await livingBooksDb.globalCompetencyMastery.get(incoming.competencyId);
         if (!current || incoming.updatedAt >= current.updatedAt) {
           await livingBooksDb.globalCompetencyMastery.put(incoming);
+          mergedRecords += 1;
+        }
+      }
+
+      for (const incoming of snapshot.aiExercises ?? []) {
+        const current = await livingBooksDb.exerciseBank.get(incoming.exerciseId);
+        if (!current || incoming.createdAt >= current.createdAt) {
+          await livingBooksDb.exerciseBank.put(incoming);
+          mergedRecords += 1;
+        }
+      }
+
+      for (const incoming of snapshot.deepDiveCache ?? []) {
+        const current = await livingBooksDb.deepDiveCache.get(incoming.cacheKey);
+        if (!current || incoming.updatedAt >= current.updatedAt) {
+          await livingBooksDb.deepDiveCache.put(incoming);
           mergedRecords += 1;
         }
       }

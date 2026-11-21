@@ -2,9 +2,24 @@ import { useState, type FormEvent, type ReactNode } from 'react';
 import { Lock, ShieldCheck, AlertTriangle } from 'lucide-react';
 
 const EXPECTED_HASH = (import.meta.env.VITE_APP_ACCESS_PIN_SHA256 ?? '').trim().toLowerCase();
-const SESSION_KEY = 'ulb_access_gate_verified';
+const STORAGE_KEY = 'ulb_access_gate_verified';
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_MS = 60_000;
+
+export function getStoredAccessPinHash(): string {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const val = localStorage.getItem(STORAGE_KEY);
+      if (val) return val;
+    }
+    if (typeof sessionStorage !== 'undefined') {
+      return sessionStorage.getItem(STORAGE_KEY) ?? '';
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return '';
+}
 
 async function sha256Hex(input: string): Promise<string> {
   const bytes = new TextEncoder().encode(input);
@@ -17,11 +32,7 @@ async function sha256Hex(input: string): Promise<string> {
 export function AccessGate({ children }: { children: ReactNode }) {
   const [unlocked, setUnlocked] = useState<boolean>(() => {
     if (!EXPECTED_HASH) return true;
-    try {
-      return sessionStorage.getItem(SESSION_KEY) === EXPECTED_HASH;
-    } catch {
-      return false;
-    }
+    return getStoredAccessPinHash() === EXPECTED_HASH;
   });
   const [pin, setPin] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -44,12 +55,14 @@ export function AccessGate({ children }: { children: ReactNode }) {
     const hash = await sha256Hex(pin);
     if (hash === EXPECTED_HASH) {
       try {
-        sessionStorage.setItem(SESSION_KEY, EXPECTED_HASH);
+        localStorage.setItem(STORAGE_KEY, EXPECTED_HASH);
+        sessionStorage.setItem(STORAGE_KEY, EXPECTED_HASH);
       } catch {
         // ignore storage errors
       }
       setUnlocked(true);
       setError(null);
+      window.dispatchEvent(new CustomEvent('living-books:access-unlocked'));
       return;
     }
 

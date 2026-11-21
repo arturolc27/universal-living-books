@@ -18,6 +18,7 @@ import { AccessGate } from './ui/security/AccessGate';
 export default function App() {
   const hydrateFromDb = usePlatformStore((s) => s.hydrateFromDb);
   const registerCartridge = usePlatformStore((s) => s.registerCartridge);
+  const syncWithServer = usePlatformStore((s) => s.syncWithServer);
   const isHydrated = usePlatformStore((s) => s.isHydrated);
   const activeBookId = usePlatformStore((s) => s.activeBookId);
   const globalRoute = usePlatformStore((s) => s.globalRoute);
@@ -47,6 +48,8 @@ export default function App() {
         for (const book of bundled) {
           await registerCartridge(book, false);
         }
+        // Sincronización automática en segundo plano con la VPS (libros, ajustes y progreso)
+        void syncWithServer();
       } catch (err) {
         if (!cancelled) setBootError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -58,7 +61,31 @@ export default function App() {
       cancelled = true;
       clearTimeout(timeout);
     };
-  }, [hydrateFromDb, registerCartridge]);
+  }, [hydrateFromDb, registerCartridge, syncWithServer]);
+
+  // Re-sincronizar al recuperar conexión, desbloquear PIN o volver a la pestaña (>30s)
+  useEffect(() => {
+    let lastAutoSync = Date.now();
+    const triggerSync = (force = false) => {
+      const now = Date.now();
+      if (!force && now - lastAutoSync < 30_000) return;
+      lastAutoSync = now;
+      void syncWithServer();
+    };
+    const onOnline = () => triggerSync(true);
+    const onUnlocked = () => triggerSync(true);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') triggerSync(false);
+    };
+    window.addEventListener('online', onOnline);
+    window.addEventListener('living-books:access-unlocked', onUnlocked);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('living-books:access-unlocked', onUnlocked);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [syncWithServer]);
 
   const handleRepair = async () => {
     try {

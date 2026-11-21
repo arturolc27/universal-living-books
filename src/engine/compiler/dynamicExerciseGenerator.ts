@@ -8,6 +8,7 @@ import type {
   SyntaxClozeBlock,
 } from '../../types/cartridge.types';
 import { livingBooksDb, type ExerciseBankRecord } from '../../db/dexieDb';
+import { scheduleCloudStateSync } from '../../db/cloudSyncClient';
 import { pythonRuntimeBridge } from '../pyodide/pythonRuntimeBridge';
 import { sanitizeBlock } from './lessonSanitizer';
 import { parseJsonLoose } from './metadataTocExtractor';
@@ -365,6 +366,7 @@ export async function generateDynamicExercise(
 
     if (livingBooksDb.exerciseBank) {
       await livingBooksDb.exerciseBank.put(record).catch(() => {});
+      scheduleCloudStateSync();
     }
     return record;
   }
@@ -453,6 +455,7 @@ Devuelve EXCLUSIVAMENTE un objeto JSON con exactamente estos campos:
         updatedAt: Date.now(),
       })
       .catch(() => {});
+    scheduleCloudStateSync();
   }
 
   return deepDive;

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { X, KeyRound, Cloud, Download, Upload, Trash2, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { X, KeyRound, Cloud, Download, Upload, Trash2, CheckCircle2, AlertTriangle, RefreshCw } from 'lucide-react';
 import { usePlatformStore } from '../../store/usePlatformStore';
+import { useCloudSyncState } from '../../db/cloudSyncClient';
 import { exportSyncSnapshot, importSyncSnapshot, syncWithSupabase } from '../../db/syncService';
 import { livingBooksDb } from '../../db/dexieDb';
 import { ModelCombobox } from './ModelCombobox';
@@ -12,7 +13,9 @@ type Tab = 'COMPILER' | 'SYNC' | 'DATA';
 export function SettingsModal({ onClose }: { onClose: () => void }) {
   const settings = usePlatformStore((s) => s.settings);
   const setSettings = usePlatformStore((s) => s.setSettings);
+  const syncWithServer = usePlatformStore((s) => s.syncWithServer);
   const pushToast = usePlatformStore((s) => s.pushToast);
+  const cloudSync = useCloudSyncState();
   const [tab, setTab] = useState<Tab>('COMPILER');
   const [importText, setImportText] = useState('');
   const [status, setStatus] = useState<string | null>(null);
@@ -25,6 +28,25 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onClose]);
+
+  const handleVpsSyncNow = async () => {
+    setBusy(true);
+    setStatus(null);
+    try {
+      const res = await syncWithServer();
+      if (res.synced) {
+        setStatus(
+          `Sincronizado con tu VPS. Libros descargados: ${res.booksPulled}, subidos: ${res.booksPushed}.`
+        );
+      } else {
+        setStatus('No se pudo conectar al servidor de tu VPS (modo offline activo).');
+      }
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const handleExport = async () => {
     try {
@@ -77,7 +99,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   };
 
   const handleReset = async () => {
-    if (!window.confirm('Esto borrara todo tu progreso, cartuchos importados y repasos. Continuar?')) return;
+    if (!window.confirm('Esto borrara todo tu progreso, cartuchos importados y repasos de este navegador. Continuar?')) return;
     await livingBooksDb.delete();
     window.location.reload();
   };
@@ -118,7 +140,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           {tab === 'COMPILER' && (
             <div className="space-y-3">
               <p className="text-[11px] text-muted">
-                Proveedor LLM para compilar libros desde el Estudio de Compilacion. La clave se guarda solo en tu navegador.
+                Proveedor LLM para compilar libros, traducir lecciones y generar ejercicios IA. Tus ajustes se sincronizan automáticamente en tu VPS entre PC, móvil y otros navegadores.
               </p>
 
               <div>
@@ -192,8 +214,48 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
 
           {tab === 'SYNC' && (
             <div className="space-y-3">
+              {/* Panel Nube Propia (VPS) */}
+              <div className="rounded-xl border border-accent/40 bg-accent/5 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="flex items-center gap-1.5 text-xs font-bold text-accent">
+                      <Cloud size={13} /> Nube Propia en tu VPS (Automática)
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-muted">
+                      Estado:{' '}
+                      <strong className="text-primary">
+                        {cloudSync.status === 'SYNCED'
+                          ? 'Conectado y sincronizado'
+                          : cloudSync.status === 'SYNCING'
+                            ? 'Sincronizando...'
+                            : cloudSync.status === 'OFFLINE'
+                              ? 'Sin conexión (se subirá al reconectar)'
+                              : cloudSync.status === 'UNAUTHORIZED'
+                                ? 'Requiere PIN de acceso'
+                                : 'Servidor local no detectado'}
+                      </strong>
+                    </p>
+                    {cloudSync.lastSyncedAt && (
+                      <p className="text-[10px] text-muted">
+                        Última sincronización: {new Date(cloudSync.lastSyncedAt).toLocaleTimeString()} ·{' '}
+                        {cloudSync.serverBooksCount} libros en servidor
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={busy || cloudSync.status === 'SYNCING'}
+                    onClick={() => void handleVpsSyncNow()}
+                    className="flex shrink-0 items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-[11px] font-semibold text-canvas disabled:opacity-50"
+                  >
+                    <RefreshCw size={12} className={cloudSync.status === 'SYNCING' ? 'animate-spin' : ''} />
+                    Sincronizar
+                  </button>
+                </div>
+              </div>
+
               <p className="text-[11px] text-muted">
-                Sincroniza tu progreso entre PC y movil. Exporta/importa un snapshot JSON o conecta Supabase (Last-Write-Wins).
+                Respaldo manual opcional: exporta o importa un snapshot JSON entre dispositivos sin conexión.
               </p>
               <div className="flex gap-2">
                 <button type="button" onClick={handleExport} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-subtle py-2 text-xs text-primary hover:border-accent/50">

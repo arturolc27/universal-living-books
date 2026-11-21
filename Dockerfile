@@ -13,21 +13,24 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm build
 
-# Stage 2: Hardened non-root Nginx runtime
-FROM nginx:1.27-alpine AS runner
+# Stage 2: Hardened non-root Node.js 24 runtime (SPA + Persistent Sync API)
+FROM node:24-alpine AS runner
+WORKDIR /app
 
-RUN rm -f /etc/nginx/conf.d/default.conf
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=builder /app/dist /usr/share/nginx/html
+ENV NODE_ENV=production
+ENV PORT=8080
+ENV DATA_DIR=/data
 
-# Ensure non-root nginx user can run with read-only rootfs and /tmp pid
-RUN sed -i 's|/run/nginx.pid|/tmp/nginx.pid|g' /etc/nginx/nginx.conf \
-  && chown -R nginx:nginx /usr/share/nginx/html /var/cache/nginx /var/log/nginx /etc/nginx/conf.d
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/server ./server
 
-USER nginx
+RUN mkdir -p /data/books \
+  && chown -R node:node /app /data
+
+USER node
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1
+  CMD wget -q -O /dev/null http://127.0.0.1:8080/api/health || exit 1
 
-ENTRYPOINT ["nginx", "-g", "daemon off;"]
+ENTRYPOINT ["node", "server/index.mjs"]

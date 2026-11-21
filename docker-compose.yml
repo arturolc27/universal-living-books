@@ -8,10 +8,14 @@ services:
     container_name: universal-living-books
     restart: unless-stopped
     read_only: true
+    environment:
+      PORT: "8080"
+      DATA_DIR: "/data"
+      APP_ACCESS_PIN_SHA256: ${VITE_APP_ACCESS_PIN_SHA256:-}
+    volumes:
+      - ulb_data:/data
     tmpfs:
       - /tmp:rw,noexec,nosuid,mode=1777
-      - /var/cache/nginx:rw,noexec,nosuid,uid=101,gid=101
-      - /var/run:rw,noexec,nosuid,uid=101,gid=101
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -20,6 +24,10 @@ services:
       - "127.0.0.1:${APP_PORT:-8085}:8080"
     networks:
       - living_books_net
+
+volumes:
+  ulb_data:
+    driver: local
 
 networks:
   living_books_net:

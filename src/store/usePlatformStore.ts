@@ -34,6 +34,14 @@ import {
   recordCompetencyEvidence,
   type CompetencyEvidenceSignal,
 } from '../engine/knowledge/knowledgeIndexer';
+import {
+  deleteBookFromCloud,
+  pushBookToCloud,
+  scheduleCloudSettingsPush,
+  scheduleCloudStateSync,
+  setLocalSettingsUpdatedAt,
+  syncAllWithSelfHostedServer,
+} from '../db/cloudSyncClient';
 import { matchCompetenciesFromText } from '../data/pythonTaxonomy';
 import { repairCartridgeForRuntime } from '../engine/compiler/lessonSanitizer';
 import { translateMicroLessonOnDemand } from '../engine/compiler/llmCompiler';
@@ -119,6 +127,7 @@ interface PlatformState {
   setSandboxCodeRequest: (code: string | null) => void;
   setChapterFastTrack: (chapterId: string, fastTrack: boolean) => void;
   hydrateFromDb: () => Promise<void>;
+  syncWithServer: () => Promise<{ synced: boolean; booksPulled: number; booksPushed: number }>;
   refreshKnowledgeGraph: () => Promise<void>;
   registerCartridge: (cartridge: BookCartridge, persist?: boolean) => Promise<void>;
   deleteBook: (bookId: string) => Promise<void>;
@@ -290,9 +299,12 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
     }));
   },
   setSettings: (partial) => {
+    const now = Date.now();
     const next = { ...get().settings, ...partial };
     persistSettings(next);
+    setLocalSettingsUpdatedAt(now);
     set({ settings: next });
+    scheduleCloudSettingsPush(next as unknown as Record<string, unknown>, now);
   },
   enqueuePcLab: (item) => {
     const current = get().pcLabQueue;
@@ -306,6 +318,7 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
     const next: PcLabQueueItem[] = [...current, { ...item, queuedAt: Date.now() }];
     persistPcLabQueue(next);
     set({ pcLabQueue: next });
+    scheduleCloudStateSync();
   },
   resolvePcLab: (bookId, lessonId, blockId) => {
     const next = get().pcLabQueue.filter(
@@ -313,10 +326,59 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
     );
     persistPcLabQueue(next);
     set({ pcLabQueue: next });
+    scheduleCloudStateSync();
   },
   replacePcLabQueue: (items) => {
     persistPcLabQueue(items);
     set({ pcLabQueue: items });
+  },
+
+  syncWithServer: async () => {
+    return syncAllWithSelfHostedServer({
+      getLocalSettings: () => get().settings as unknown as Record<string, unknown>,
+      applyServerSettings: (remoteSettings, updatedAt) => {
+        const merged = { ...DEFAULT_SETTINGS, ...(remoteSettings as Partial<PlatformSettings>) };
+        persistSettings(merged);
+        setLocalSettingsUpdatedAt(updatedAt);
+        set({ settings: merged });
+      },
+      registerDownloadedBook: async (cartridge, installedAt) => {
+        const safeCartridge = repairCartridgeForRuntime(cartridge) ?? cartridge;
+        await livingBooksDb.installedCartridges.put({
+          bookId: safeCartridge.bookId,
+          cartridgeJson: safeCartridge,
+          installedAt,
+        });
+        set((state) => ({
+          cartridges: { ...state.cartridges, [safeCartridge.bookId]: safeCartridge },
+        }));
+        await indexCartridgeIntoKnowledgeGraph(safeCartridge).catch(() => {});
+      },
+      removeLocallyDeletedBook: async (bookId) => {
+        await Promise.all([
+          livingBooksDb.installedCartridges.delete(bookId),
+          livingBooksDb.lessonProgress.where('bookId').equals(bookId).delete(),
+          livingBooksDb.srsCardsState.where('bookId').equals(bookId).delete(),
+          livingBooksDb.virtualFileSystems.delete(bookId),
+          livingBooksDb.lessonTranslations.where('bookId').equals(bookId).delete().catch(() => {}),
+          livingBooksDb.exerciseBank
+            ? livingBooksDb.exerciseBank.where('bookId').equals(bookId).delete().catch(() => {})
+            : Promise.resolve(),
+        ]);
+        set((state) => {
+          const nextCartridges = { ...state.cartridges };
+          delete nextCartridges[bookId];
+          return {
+            cartridges: nextCartridges,
+            activeBookId: state.activeBookId === bookId ? null : state.activeBookId,
+          };
+        });
+      },
+      reloadStoreFromDb: async () => {
+        await get().hydrateFromDb();
+        set({ pcLabQueue: loadPcLabQueue() });
+      },
+    });
   },
 
   refreshKnowledgeGraph: async () => {
@@ -402,6 +464,7 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
 
   registerCartridge: async (cartridge, persist = true) => {
     const safeCartridge = repairCartridgeForRuntime(cartridge) ?? cartridge;
+    const now = Date.now();
     set((state) => ({
       cartridges: { ...state.cartridges, [safeCartridge.bookId]: safeCartridge },
     }));
@@ -409,8 +472,9 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
       await livingBooksDb.installedCartridges.put({
         bookId: safeCartridge.bookId,
         cartridgeJson: safeCartridge,
-        installedAt: Date.now(),
+        installedAt: now,
       });
+      void pushBookToCloud(safeCartridge, now);
     }
     await indexCartridgeIntoKnowledgeGraph(safeCartridge).catch(() => {});
     await get().refreshKnowledgeGraph();
@@ -442,6 +506,7 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
         activeLessonId: state.activeBookId === bookId ? null : state.activeLessonId,
       };
     });
+    void deleteBookFromCloud(bookId);
     await get().refreshKnowledgeGraph();
   },
 
@@ -626,6 +691,7 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
       },
     }));
 
+    scheduleCloudStateSync();
     return enrolledCount;
   },
 
@@ -778,6 +844,7 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
     if (isCompleted) {
       await get().checkAchievements();
     }
+    scheduleCloudStateSync();
   },
 
   setStudyLanguage: async (lang) => {
@@ -926,6 +993,7 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
 
     set({ userStats: next, lessonProgressMap: nextProgressMap });
     await get().checkAchievements();
+    scheduleCloudStateSync();
   },
 
   recordAstMastery: async () => {
@@ -938,6 +1006,7 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
     await livingBooksDb.userStats.put(next);
     set({ userStats: next });
     await get().checkAchievements();
+    scheduleCloudStateSync();
   },
 
   recordCompetencySignal: async (signal) => {
@@ -950,6 +1019,7 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
         }
         return { globalCompetencyMastery: nextMap };
       });
+      scheduleCloudStateSync();
     }
   },
 
@@ -1018,6 +1088,7 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
     const next = injectPcLabFailure(srsStates[key], activeBookId, cardId);
     await livingBooksDb.srsCardsState.put(next);
     set((state) => ({ srsStates: { ...state.srsStates, [key]: next } }));
+    scheduleCloudStateSync();
   },
 
   gradeGlobalFlashcard: async (bookId, cardId, rating, latencyMs, competencyIds) => {
@@ -1067,6 +1138,7 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
       daysSinceLastPractice,
     });
     await get().checkAchievements();
+    scheduleCloudStateSync();
   },
 
   gradeFlashcard: async (cardId, grade, latencyMs) => {

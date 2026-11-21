@@ -9,6 +9,7 @@ import type {
 } from '../../types/compiler.types';
 import { validateBookCartridge } from '../../types/cartridge.schema';
 import { livingBooksDb, upsertCompiledChapterToBook } from '../../db/dexieDb';
+import { pushBookToCloud } from '../../db/cloudSyncClient';
 import { verifyExerciseBlockWithPyodide } from './dynamicExerciseGenerator';
 import { buildCompilerSystemInstruction, MICROLESSON_RESPONSE_SCHEMA } from './llmCompiler';
 import { formatBookSourceMarkdown, sanitizeLesson } from './lessonSanitizer';
@@ -594,6 +595,7 @@ export class ParallelBookCompiler {
       assembled.glossary,
       { themeDNA: this.meta.themeDNA, runtimeRequirements: this.meta.runtimeRequirements }
     );
+    void pushBookToCloud(merged);
 
     const validation = validateBookCartridge(merged);
     if (!validation.success) {

@@ -19,12 +19,15 @@ import {
   Brain,
   BookMarked,
   Compass,
+  Cloud,
+  Loader2,
 } from 'lucide-react';
 import {
   usePlatformStore,
   selectActiveCartridge,
   type GlobalRoute,
 } from '../../store/usePlatformStore';
+import { useCloudSyncState } from '../../db/cloudSyncClient';
 import { CommandPalette } from './CommandPalette';
 import { CartridgeImporterModal } from '../library/CartridgeImporterModal';
 import { SettingsModal } from '../settings/SettingsModal';
@@ -61,7 +64,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const activeBookId = usePlatformStore((s) => s.activeBookId);
   const globalRoute = usePlatformStore((s) => s.globalRoute);
   const setGlobalRoute = usePlatformStore((s) => s.setGlobalRoute);
+  const syncWithServer = usePlatformStore((s) => s.syncWithServer);
   const srsStates = usePlatformStore((s) => s.srsStates);
+  const cloudSync = useCloudSyncState();
   const cartridge = usePlatformStore(selectActiveCartridge);
   const userStats = usePlatformStore((s) => s.userStats);
   const settings = usePlatformStore((s) => s.settings);
@@ -220,7 +225,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </button>
         </div>
 
-        {isOffline && (
+        {isOffline ? (
           <span
             className="flex shrink-0 items-center gap-1 rounded-full border border-secondary/40 bg-secondary/10 px-2 py-1 text-[10px] font-semibold text-secondary"
             title="Trabajando sin conexión (PWA Offline)"
@@ -228,6 +233,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <WifiOff size={11} />
             <span className="hidden sm:inline">Offline</span>
           </span>
+        ) : (cloudSync.status === 'SYNCED' || cloudSync.status === 'SYNCING') && (
+          <button
+            type="button"
+            onClick={() => void syncWithServer()}
+            className={cn(
+              'flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-semibold transition-colors',
+              cloudSync.status === 'SYNCING'
+                ? 'border-accent/40 bg-accent/10 text-accent'
+                : 'border-success/40 bg-success/10 text-success hover:bg-success/20'
+            )}
+            title={
+              cloudSync.status === 'SYNCING'
+                ? 'Sincronizando libros, ajustes y progreso con tu VPS...'
+                : 'Sincronizado con tu VPS (clic para forzar sincronización)'
+            }
+          >
+            {cloudSync.status === 'SYNCING' ? (
+              <Loader2 size={11} className="animate-spin" />
+            ) : (
+              <Cloud size={11} />
+            )}
+            <span className="hidden sm:inline">
+              {cloudSync.status === 'SYNCING' ? 'Sync...' : 'VPS ✓'}
+            </span>
+          </button>
         )}
 
         {installPrompt && (
