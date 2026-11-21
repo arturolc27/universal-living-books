@@ -10,6 +10,7 @@ import type {
   PythonMisconceptionId,
 } from '../types/cartridge.types';
 import type { CompilationJob } from '../types/compiler.types';
+import { sanitizeGlossaryMap } from '../engine/compiler/lessonSanitizer';
 
 export interface InstalledCartridgeRecord {
   bookId: string;
@@ -389,8 +390,9 @@ export async function upsertCompiledChapterToBook(
     chapters.push(chapter);
     chapters.sort((a, b) => a.number - b.number);
 
-    const glossary: Record<string, GlossaryEntry> = { ...base.glossary };
-    for (const [key, entry] of Object.entries(glossaryEntries)) {
+    const glossary: Record<string, GlossaryEntry> = sanitizeGlossaryMap(base.glossary, chapter.number);
+    const cleanIncoming = sanitizeGlossaryMap(glossaryEntries, chapter.number);
+    for (const [key, entry] of Object.entries(cleanIncoming)) {
       if (!glossary[key]) glossary[key] = entry;
     }
 
@@ -410,6 +412,11 @@ export async function upsertCompiledChapterToBook(
       installedAt: Date.now(),
     });
 
+    return merged;
+  }).then(async (merged) => {
+    // Invalidar traducciones cacheadas obsoletas del libro fuera de la transacción de
+    // installedCartridges para evitar restricciones multi-tabla de Dexie.
+    await livingBooksDb.lessonTranslations?.where('bookId').equals(bookId).delete().catch(() => {});
     return merged;
   });
 }

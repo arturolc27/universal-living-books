@@ -56,6 +56,163 @@ function firstNonEmptyString(...candidates: unknown[]): string {
   return '';
 }
 
+const VALID_HEAP_STATUSES = new Set(['NEW', 'ACTIVE', 'MUTATED', 'ORPHANED']);
+
+export function normalizeHeapStatus(raw: unknown): 'NEW' | 'ACTIVE' | 'MUTATED' | 'ORPHANED' {
+  const s = String(raw ?? '').toUpperCase().trim();
+  if (VALID_HEAP_STATUSES.has(s)) {
+    return s as 'NEW' | 'ACTIVE' | 'MUTATED' | 'ORPHANED';
+  }
+  if (s === 'CREATED' || s === 'ALLOCATED' || s === 'INIT' || s === 'INITIAL') return 'NEW';
+  if (s === 'MODIFIED' || s === 'CHANGED' || s === 'UPDATED' || s === 'DIRTY') return 'MUTATED';
+  if (
+    s === 'UNREACHABLE' ||
+    s === 'DEAD' ||
+    s === 'GC' ||
+    s === 'FREED' ||
+    s === 'COLLECTED' ||
+    s === 'DELETED' ||
+    s === 'REMOVED'
+  ) {
+    return 'ORPHANED';
+  }
+  // LIVE, EXISTING, ALIVE, REFERENCED, IN_USE, etc.
+  return 'ACTIVE';
+}
+
+function sanitizeMemorySteps(rawSteps: unknown): unknown[] | undefined {
+  if (!Array.isArray(rawSteps)) return undefined;
+  return rawSteps
+    .map((step, idx) => {
+      if (!step || typeof step !== 'object') return null;
+      const s = step as Record<string, unknown>;
+      const rawFrames = Array.isArray(s.frames)
+        ? s.frames
+        : Array.isArray(s.stackFrames)
+          ? s.stackFrames
+          : [];
+      const frames = rawFrames
+        .map((frame, fIdx) => {
+          if (!frame || typeof frame !== 'object') return null;
+          const f = frame as Record<string, unknown>;
+          const rawVars =
+            f.variables && typeof f.variables === 'object' && !Array.isArray(f.variables)
+              ? (f.variables as Record<string, unknown>)
+              : {};
+          const variables: Record<string, string> = {};
+          for (const [k, v] of Object.entries(rawVars)) {
+            if (k) variables[k] = coerceString(v);
+          }
+          return {
+            name: firstNonEmptyString(f.name) || '<module>',
+            isCurrent:
+              typeof f.isCurrent === 'boolean' ? f.isCurrent : fIdx === rawFrames.length - 1,
+            variables,
+            ...(typeof f.returnValue === 'string' ? { returnValue: f.returnValue } : {}),
+          };
+        })
+        .filter((f): f is NonNullable<typeof f> => f !== null);
+
+      const rawHeap = Array.isArray(s.heap) ? s.heap : [];
+      const heap = rawHeap
+        .map((obj, hIdx) => {
+          if (!obj || typeof obj !== 'object') return null;
+          const o = obj as Record<string, unknown>;
+          return {
+            id: firstNonEmptyString(o.id, o.address) || `id_${hIdx}`,
+            type: firstNonEmptyString(o.type) || 'object',
+            value: coerceString(o.value),
+            status: normalizeHeapStatus(o.status),
+          };
+        })
+        .filter((o): o is NonNullable<typeof o> => o !== null);
+
+      const rawStepIndex = Number(s.stepIndex ?? s.stepNumber);
+      const rawLineNumber = Number(s.lineNumber ?? s.activeLine);
+      const result: Record<string, unknown> = {
+        stepIndex:
+          Number.isFinite(rawStepIndex) && rawStepIndex >= 0 ? Math.trunc(rawStepIndex) : idx,
+        lineNumber:
+          Number.isFinite(rawLineNumber) && rawLineNumber >= 0 ? Math.trunc(rawLineNumber) : 1,
+        explanation: firstNonEmptyString(s.explanation, s.note, s.description) || `Paso ${idx + 1}`,
+        frames,
+        heap,
+      };
+      if (s.interactiveDragTask && typeof s.interactiveDragTask === 'object') {
+        const drag = s.interactiveDragTask as Record<string, unknown>;
+        const fromFrame = firstNonEmptyString(drag.fromFrame);
+        const variable = firstNonEmptyString(drag.variable);
+        const expectedHeapId = firstNonEmptyString(drag.expectedHeapId);
+        if (fromFrame && variable && expectedHeapId) {
+          result.interactiveDragTask = {
+            fromFrame,
+            variable,
+            expectedHeapId,
+            hint: firstNonEmptyString(drag.hint) || 'Conecta la variable con su objeto en el heap.',
+          };
+        }
+      }
+      return result;
+    })
+    .filter((s): s is NonNullable<typeof s> => s !== null);
+}
+
+/**
+ * Normaliza un diccionario de glosario para garantizar compatibilidad estricta
+ * con `GlossaryEntrySchema` (filtra claves vacias/puntuacion, convierte strings
+ * sueltos a objetos y asegura `chapterIntroduced`).
+ */
+export function sanitizeGlossaryMap(
+  raw: unknown,
+  defaultChapter = 1
+): BookCartridge['glossary'] {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const fallbackChapter =
+    Number.isFinite(defaultChapter) && defaultChapter >= 1 ? Math.trunc(defaultChapter) : 1;
+  const out: BookCartridge['glossary'] = {};
+
+  for (const [rawKey, rawVal] of Object.entries(raw as Record<string, unknown>)) {
+    const key = rawKey.trim();
+    // Descartar claves vacias o que solo contienen signos de puntuacion (ej. ":")
+    if (!key || key.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ_]/g, '').length === 0) continue;
+
+    if (typeof rawVal === 'string') {
+      const def = rawVal.trim();
+      if (!def) continue;
+      out[key] = {
+        term: key,
+        definition: def,
+        chapterIntroduced: fallbackChapter,
+      };
+      continue;
+    }
+
+    if (rawVal && typeof rawVal === 'object' && !Array.isArray(rawVal)) {
+      const rec = rawVal as Record<string, unknown>;
+      const definition = firstNonEmptyString(
+        rec.definition,
+        rec.meaning,
+        rec.explanation,
+        rec.description
+      );
+      if (!definition) continue;
+      const term = firstNonEmptyString(rec.term, rec.name) || key;
+      const chNum = Number(rec.chapterIntroduced);
+      const chapterIntroduced =
+        Number.isFinite(chNum) && chNum >= 1 ? Math.trunc(chNum) : fallbackChapter;
+      const exampleCode = firstNonEmptyString(rec.exampleCode, rec.example, rec.code) || undefined;
+      out[key] = {
+        term,
+        definition,
+        chapterIntroduced,
+        ...(exampleCode ? { exampleCode } : {}),
+      };
+    }
+  }
+
+  return out;
+}
+
 export function sanitizeBlock(raw: unknown, index: number): LessonBlock | null {
   if (!raw || typeof raw !== 'object') return null;
   const block = raw as Record<string, unknown>;
@@ -221,7 +378,14 @@ export function sanitizeBlock(raw: unknown, index: number): LessonBlock | null {
     base.visualizerKind = allowedKinds.has(kind) ? kind : 'MEMORY_MODEL';
     base.title = firstNonEmptyString(block.title) || 'Visualizador Interactivo';
     base.codeContext = firstNonEmptyString(block.codeContext, block.code, block.snippet);
-    base.payload = block.payload && typeof block.payload === 'object' ? block.payload : {};
+    const rawPayload =
+      block.payload && typeof block.payload === 'object'
+        ? { ...(block.payload as Record<string, unknown>) }
+        : {};
+    if (Array.isArray(rawPayload.memorySteps)) {
+      rawPayload.memorySteps = sanitizeMemorySteps(rawPayload.memorySteps);
+    }
+    base.payload = rawPayload;
   }
 
   if (type === 'FLASHCARD') {
@@ -449,7 +613,10 @@ export function sanitizeLesson(
     typeof lesson.extractedGlossary === 'object' &&
     !Array.isArray(lesson.extractedGlossary)
   ) {
-    sanitized.extractedGlossary = lesson.extractedGlossary as Record<string, unknown>;
+    const cleanGlossary = sanitizeGlossaryMap(lesson.extractedGlossary, fallback.order ?? 1);
+    if (Object.keys(cleanGlossary).length > 0) {
+      sanitized.extractedGlossary = cleanGlossary as unknown as Record<string, unknown>;
+    }
   }
   return sanitized;
 }
@@ -559,10 +726,7 @@ export function repairCartridgeForRuntime(raw: unknown): BookCartridge | null {
           ? (rawRuntime.virtualFileSystemSeed as Record<string, string>)
           : {},
     },
-    glossary:
-      rec.glossary && typeof rec.glossary === 'object' && !Array.isArray(rec.glossary)
-        ? (rec.glossary as BookCartridge['glossary'])
-        : {},
+    glossary: sanitizeGlossaryMap(rec.glossary, chapters[0]?.number ?? 1),
     achievements: Array.isArray(rec.achievements) ? rec.achievements : [],
     chapters,
   };

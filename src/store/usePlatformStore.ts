@@ -465,15 +465,24 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
   registerCartridge: async (cartridge, persist = true) => {
     const safeCartridge = repairCartridgeForRuntime(cartridge) ?? cartridge;
     const now = Date.now();
-    set((state) => ({
-      cartridges: { ...state.cartridges, [safeCartridge.bookId]: safeCartridge },
-    }));
+    set((state) => {
+      const nextTranslated = { ...state.translatedLessons };
+      const prefix = `${safeCartridge.bookId}::`;
+      for (const k of Object.keys(nextTranslated)) {
+        if (k.startsWith(prefix)) delete nextTranslated[k];
+      }
+      return {
+        cartridges: { ...state.cartridges, [safeCartridge.bookId]: safeCartridge },
+        translatedLessons: nextTranslated,
+      };
+    });
     if (persist) {
       await livingBooksDb.installedCartridges.put({
         bookId: safeCartridge.bookId,
         cartridgeJson: safeCartridge,
         installedAt: now,
       });
+      await livingBooksDb.lessonTranslations.where('bookId').equals(safeCartridge.bookId).delete().catch(() => {});
       void pushBookToCloud(safeCartridge, now);
     }
     await indexCartridgeIntoKnowledgeGraph(safeCartridge).catch(() => {});
@@ -1225,7 +1234,22 @@ export function selectActiveLesson(state: PlatformState): MicroLesson | null {
   const base = selectActiveLessonRaw(state);
   if (!base || !state.activeBookId) return base;
   const cacheKey = `${state.activeBookId}::${base.lessonId}::${state.preferredLanguage}`;
-  return state.translatedLessons[cacheKey] ?? base;
+  const cached = state.translatedLessons[cacheKey];
+  if (!cached) return base;
+  return {
+    ...cached,
+    sourceBookMarkdown: cached.sourceBookMarkdown || base.sourceBookMarkdown,
+    sourcePageRange: cached.sourcePageRange || base.sourcePageRange,
+    deepDive: cached.deepDive ?? base.deepDive,
+    exerciseBank:
+      cached.exerciseBank && cached.exerciseBank.length > 0
+        ? cached.exerciseBank
+        : base.exerciseBank,
+    competencyIds:
+      cached.competencyIds && cached.competencyIds.length > 0
+        ? cached.competencyIds
+        : base.competencyIds,
+  };
 }
 
 export function selectActiveBlock(state: PlatformState): LessonBlock | null {

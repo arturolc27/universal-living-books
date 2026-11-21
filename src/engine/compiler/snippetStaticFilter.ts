@@ -79,8 +79,24 @@ function checkBracketBalance(code: string): string | null {
   return null;
 }
 
+const COMPOUND_HEADER_RE =
+  /^(?:async\s+)?(?:def|class|for|while|if|elif|else|try|except|finally|with)\b.*:\s*(?:#.*)?$/;
+
+const ORPHAN_CLAUSE_RE = /^(?:elif|else|except|finally|return|yield)\b/;
+
+function getIndentWidth(line: string): number {
+  let width = 0;
+  for (const ch of line) {
+    if (ch === ' ') width += 1;
+    else if (ch === '\t') width += 4;
+    else break;
+  }
+  return width;
+}
+
 function detectSyntaxError(code: string): string | null {
   const lines = code.split('\n');
+  const nonEmpty: Array<{ raw: string; trimmed: string; indent: number }> = [];
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) continue;
@@ -91,6 +107,20 @@ function detectSyntaxError(code: string): string | null {
     // Asignacion con '=' colgante (ej. "x =").
     if (/(?<![=<>!+\-*/%])=$/.test(trimmed)) {
       return `Asignacion incompleta: "${trimmed}".`;
+    }
+    nonEmpty.push({ raw: line, trimmed, indent: getIndentWidth(line) });
+  }
+  if (nonEmpty.length > 0 && ORPHAN_CLAUSE_RE.test(nonEmpty[0].trimmed)) {
+    return `Clausula huerfana al inicio del snippet: "${nonEmpty[0].trimmed}".`;
+  }
+  // Verificar que cada encabezado compuesto (def/for/if/try/class...) tenga cuerpo indentado
+  for (let i = 0; i < nonEmpty.length; i += 1) {
+    const cur = nonEmpty[i];
+    if (COMPOUND_HEADER_RE.test(cur.trimmed)) {
+      const next = nonEmpty[i + 1];
+      if (!next || next.indent <= cur.indent) {
+        return `Bloque compuesto sin cuerpo indentado (IndentationError): "${cur.trimmed}".`;
+      }
     }
   }
   // Asignacion a un literal (ej. "12 = x").

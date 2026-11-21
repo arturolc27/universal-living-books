@@ -42,15 +42,19 @@ import {
   formatBookSourceMarkdown,
   repairCartridgeForRuntime,
   sanitizeBlock,
+  sanitizeGlossaryMap,
   sanitizeLesson,
 } from './engine/compiler/lessonSanitizer';
 import { buildCompilerSystemInstruction } from './engine/compiler/llmCompiler';
 import {
   coerceChaptersIndex,
+  deriveChaptersHeuristic,
   segmentBookByIndex,
   splitChapterIntoMicroLessons,
 } from './engine/compiler/metadataTocExtractor';
-import { usePlatformStore } from './store/usePlatformStore';
+import { analyzeSnippetStatic } from './engine/compiler/snippetStaticFilter';
+import { selectActiveLesson, usePlatformStore } from './store/usePlatformStore';
+import { validateBookCartridge } from './types/cartridge.schema';
 import type { BookCartridge } from './types/cartridge.types';
 
 describe('Compiled book resilience & E2E opening flow', () => {
@@ -430,5 +434,172 @@ describe('usePlatformStore lesson progression state machine', () => {
     state = usePlatformStore.getState();
     expect(state.cartridges[sampleBook.bookId]).toBeUndefined();
     expect(state.activeBookId).toBeNull();
+  });
+
+  it('selectActiveLesson preserves base sourceBookMarkdown & deepDive even when a stale cached translation lacks them', async () => {
+    const bookWithSource: BookCartridge = {
+      ...sampleBook,
+      bookId: 'book-translation-merge',
+      chapters: [
+        {
+          ...sampleBook.chapters[0],
+          microLessons: [
+            {
+              ...sampleBook.chapters[0].microLessons[0],
+              sourceBookMarkdown: '##### Página 1\n\nTexto real completo del libro original.',
+              sourcePageRange: 'Pág. 1',
+              deepDive: {
+                internalMechanics: 'CPython reference counting',
+                edgeCases: ['small int cache'],
+                commonPitfalls: ['mutable default'],
+                realWorldContrast: 'Use None sentinel.',
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    usePlatformStore.setState({
+      cartridges: { [bookWithSource.bookId]: bookWithSource },
+      activeBookId: bookWithSource.bookId,
+      activeChapterId: 'ch-1',
+      activeLessonId: 'l-1',
+      preferredLanguage: 'es',
+      translatedLessons: {
+        // Simula una traducción vieja guardada antes de existir sourceBookMarkdown y deepDive
+        [`${bookWithSource.bookId}::l-1::es`]: {
+          lessonId: 'l-1',
+          order: 1,
+          title: 'Lección 1 Traducida',
+          estimatedMinutes: 5,
+          blocks: [{ blockId: 'b1', type: 'PROSE', markdown: 'Resumen traducido.' }],
+        },
+      },
+    });
+
+    const active = selectActiveLesson(usePlatformStore.getState());
+    expect(active?.title).toBe('Lección 1 Traducida');
+    expect(active?.sourceBookMarkdown).toContain('Texto real completo del libro original.');
+    expect(active?.sourcePageRange).toBe('Pág. 1');
+    expect(active?.deepDive?.internalMechanics).toBe('CPython reference counting');
+  });
+
+  it('normalizes invalid LLM heap statuses (LIVE/UNREACHABLE/DEAD/EXISTING) and malformed glossary entries so Zod validates cleanly', () => {
+    const dirtyLesson = sanitizeLesson(
+      {
+        lessonId: 'ch2-sec1',
+        title: 'Memoria en Python',
+        blocks: [
+          { blockId: 'p1', type: 'PROSE', markdown: 'Explicación de memoria.' },
+          {
+            blockId: 'v1',
+            type: 'INTERACTIVE_VISUALIZER',
+            visualizerKind: 'MEMORY_MODEL',
+            title: 'Heap',
+            codeContext: 'x = 1\nx = 2',
+            payload: {
+              memorySteps: [
+                {
+                  stepNumber: 1,
+                  activeLine: 1,
+                  stackFrames: [{ frameId: 'f0', name: '<module>', variables: { x: 'id_1' } }],
+                  heap: [
+                    { id: 'id_1', type: 'int', value: '1', status: 'LIVE' },
+                    { id: 'id_2', type: 'int', value: '0', status: 'EXISTING' },
+                  ],
+                  explanation: 'Asignación inicial',
+                },
+                {
+                  stepNumber: 2,
+                  activeLine: 2,
+                  stackFrames: [{ frameId: 'f0', name: '<module>', variables: { x: 'id_3' } }],
+                  heap: [
+                    { id: 'id_1', type: 'int', value: '1', status: 'UNREACHABLE' },
+                    { id: 'id_2', type: 'int', value: '0', status: 'DEAD' },
+                    { id: 'id_3', type: 'int', value: '2', status: 'CREATED' },
+                  ],
+                  explanation: 'Reasignación',
+                },
+              ],
+            },
+          },
+        ],
+      },
+      { cleanText: '--- page 14 ---\nx = 1\nx = 2' }
+    );
+
+    const dirtyGlossary = sanitizeGlossaryMap(
+      {
+        ':': 'puntuacion invalida que debe descartarse',
+        'sentencia de asignación': {
+          term: 'sentencia de asignación',
+          definition: 'Asocia un nombre a un objeto en memoria.',
+          // falta chapterIntroduced
+        },
+        variable: 'Nombre que referencia un objeto en memoria.',
+      },
+      2
+    );
+
+    expect(dirtyGlossary[':']).toBeUndefined();
+    expect(dirtyGlossary['sentencia de asignación']?.chapterIntroduced).toBe(2);
+    expect(dirtyGlossary.variable?.definition).toContain('referencia un objeto');
+
+    const repaired = repairCartridgeForRuntime({
+      bookId: 'test-valid-cartridge',
+      metadata: { title: 'Practical Programming', authors: ['Gries'] },
+      glossary: {
+        ':': 'bad',
+        'sentencia de asignación': { term: 'sentencia de asignación', definition: 'Asocia nombre a valor.' },
+      },
+      chapters: [
+        {
+          chapterId: 'ch2',
+          number: 2,
+          title: 'Hello, Python',
+          summary: '',
+          microLessons: [dirtyLesson],
+        },
+      ],
+    });
+
+    expect(repaired).not.toBeNull();
+    const validation = validateBookCartridge(repaired);
+    expect(validation.success).toBe(true);
+  });
+
+  it('rejects inline cross-references and broken line fragments in deriveChaptersHeuristic', () => {
+    const noisyFrontMatter = [
+      'Preface',
+      'Chapter 6 ake to the code?',
+      'Chapter 11, Storing Data Using Other Collection Types, on page 209.',
+      'Chapter 14, Object-Oriented Programming, on page 281.',
+      'Chapter 15 testing and debugging), and how to plan your program (algorithms).',
+      'Chapter 17, Handling Exceptions, on page 351):',
+      'Chapter 1 What Is Programming?',
+      'Chapter 2 Hello, Python',
+      'Chapter 3 Designing and Using Functions',
+    ].join('\n');
+
+    const chapters = deriveChaptersHeuristic(noisyFrontMatter, 250_000);
+    expect(chapters.map((c) => c.chapterNumber)).toEqual([1, 2, 3]);
+    expect(chapters.map((c) => c.title)).toEqual([
+      'What Is Programming?',
+      'Hello, Python',
+      'Designing and Using Functions',
+    ]);
+  });
+
+  it('static snippet filter rejects unindented compound headers and orphan clauses before Pyodide', () => {
+    const brokenDef = analyzeSnippetStatic('def convert_to_celsius(f):\nreturn (f - 32) * 5 / 9');
+    expect(brokenDef.safe).toBe(false);
+    expect(brokenDef.reason).toContain('IndentationError');
+
+    const orphanElif = analyzeSnippetStatic('elif x > 0:\n    y = 1');
+    expect(orphanElif.safe).toBe(false);
+
+    const validDef = analyzeSnippetStatic('def double(n):\n    return n * 2\nx = double(4)');
+    expect(validDef.safe).toBe(true);
   });
 });

@@ -12,7 +12,7 @@ import { livingBooksDb, upsertCompiledChapterToBook } from '../../db/dexieDb';
 import { pushBookToCloud } from '../../db/cloudSyncClient';
 import { verifyExerciseBlockWithPyodide } from './dynamicExerciseGenerator';
 import { buildCompilerSystemInstruction, MICROLESSON_RESPONSE_SCHEMA } from './llmCompiler';
-import { formatBookSourceMarkdown, sanitizeLesson } from './lessonSanitizer';
+import { formatBookSourceMarkdown, sanitizeGlossaryMap, sanitizeLesson } from './lessonSanitizer';
 import { parseJsonLoose } from './metadataTocExtractor';
 import type { SectionChunk, TracedSnippet } from './semanticChunker';
 
@@ -565,10 +565,11 @@ export class ParallelBookCompiler {
 
     const glossary: Record<string, GlossaryEntry> = {};
     for (const task of chapterTasks) {
-      const extracted = (task.compiledLesson as unknown as { extractedGlossary?: Record<string, GlossaryEntry> })
+      const extracted = (task.compiledLesson as unknown as { extractedGlossary?: Record<string, unknown> })
         .extractedGlossary;
       if (extracted) {
-        for (const [key, value] of Object.entries(extracted)) {
+        const cleanExtracted = sanitizeGlossaryMap(extracted, chapterNumber);
+        for (const [key, value] of Object.entries(cleanExtracted)) {
           if (!glossary[key]) glossary[key] = value;
         }
       }

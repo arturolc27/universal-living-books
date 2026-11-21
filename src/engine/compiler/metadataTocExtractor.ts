@@ -390,6 +390,27 @@ export function deriveMetadataHeuristic(frontMatter: string, totalChars: number)
   };
 }
 
+/**
+ * Detecta referencias cruzadas en prosa ("Chapter 11, ..., on page 209.") o
+ * fragmentos rotos de salto de línea ("ake to the code?", "testing and debugging)")
+ * que no corresponden a un encabezado real de capítulo.
+ */
+export function isCrossReferenceOrFragment(title: string, fullLine: string): boolean {
+  const t = title.trim();
+  const line = fullLine.trim();
+  // Referencias cruzadas inline ("on page 209", "página 42", "see chapter ...")
+  if (/\b(?:on\s+page|en\s+la\s+p[áa]gina|p[áa]g\.?)\s+\d+/i.test(line)) return true;
+  if (/\b(?:see|in|from|read|covered\s+in)\s+(?:chapter|cap[íi]tulo)\b/i.test(line)) return true;
+  // Fragmento que empieza con letra minúscula ("ake to the code?", "testing and debugging)")
+  if (t.length > 0 && /^[a-záéíóúñ]/.test(t)) return true;
+  // Termina en coma, dos puntos o paréntesis sin abrir
+  if (/[,:;]$/.test(t)) return true;
+  const openParens = (t.match(/\(/g) ?? []).length;
+  const closeParens = (t.match(/\)/g) ?? []).length;
+  if (openParens !== closeParens) return true;
+  return false;
+}
+
 /** Heuristica local para derivar el indice de capitulos si el LLM falla. */
 export function deriveChaptersHeuristic(frontMatter: string, totalChars: number): ChapterIndexEntry[] {
   const entries: ChapterIndexEntry[] = [];
@@ -404,9 +425,11 @@ export function deriveChaptersHeuristic(frontMatter: string, totalChars: number)
       const number = Number(match[1]);
       if (!Number.isFinite(number) || number <= 0 || number > 60) continue;
       if (entries.some((e) => e.chapterNumber === number)) continue;
+      const candidateTitle = (match[2] || '').trim();
+      if (isCrossReferenceOrFragment(candidateTitle, line)) continue;
       entries.push({
         chapterNumber: number,
-        title: (match[2] || `Capitulo ${number}`).trim(),
+        title: candidateTitle || `Capitulo ${number}`,
         startPage: 0,
         endPage: 0,
         estimatedChars: Math.max(400, Math.round(totalChars / 15)),
@@ -601,6 +624,9 @@ function isLikelyTocLine(text: string, matchIndex: number): boolean {
   // Lineas tipicas de indice: "Chapter 1: Intro ....... 15" o "1. Intro 15"
   if (/\.{2,}\s*\d+\s*$/.test(line)) return true;
   if (/\s{2,}\d{1,4}\s*$/.test(line) && line.length < 110) return true;
+  // Referencias cruzadas inline ("Chapter 11, Storing Data..., on page 209.")
+  if (/\b(?:on\s+page|en\s+la\s+p[áa]gina|p[áa]g\.?)\s+\d+/i.test(line)) return true;
+  if (/\b(?:see|in|from|read|covered\s+in)\s+(?:chapter|cap[íi]tulo)\b/i.test(line)) return true;
   return false;
 }
 

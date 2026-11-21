@@ -299,17 +299,10 @@ export async function syncAllWithSelfHostedServer(
   return inFlightBootstrap;
 }
 
-export async function pushBookToCloud(
-  cartridge: BookCartridge,
-  updatedAt = Date.now()
-): Promise<boolean> {
-  if (!isBrowserFetchAvailable()) return false;
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    updateState({ status: 'OFFLINE' });
-    return false;
-  }
-  if (serverAvailableCache === false) return false;
+const bookPushChains = new Map<string, Promise<boolean>>();
+const latestBookPushPending = new Map<string, { cartridge: BookCartridge; updatedAt: number }>();
 
+async function performBookPush(cartridge: BookCartridge, updatedAt: number): Promise<boolean> {
   try {
     updateState({ status: 'SYNCING' });
     const res = await fetch(`/api/books/${encodeURIComponent(cartridge.bookId)}`, {
@@ -329,6 +322,47 @@ export async function pushBookToCloud(
     updateState({ status: 'OFFLINE' });
     return false;
   }
+}
+
+export async function pushBookToCloud(
+  cartridge: BookCartridge,
+  updatedAt = Date.now()
+): Promise<boolean> {
+  if (!isBrowserFetchAvailable()) return false;
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    updateState({ status: 'OFFLINE' });
+    return false;
+  }
+  if (serverAvailableCache === false) return false;
+
+  const bookId = cartridge.bookId;
+  // Guardar siempre la versión más reciente pendiente para este libro (evita carreras out-of-order)
+  const existingPending = latestBookPushPending.get(bookId);
+  if (!existingPending || updatedAt >= existingPending.updatedAt) {
+    latestBookPushPending.set(bookId, { cartridge, updatedAt });
+  }
+
+  const activeChain = bookPushChains.get(bookId);
+  if (activeChain) {
+    return activeChain;
+  }
+
+  const chain = (async () => {
+    let lastResult = false;
+    try {
+      while (latestBookPushPending.has(bookId)) {
+        const next = latestBookPushPending.get(bookId)!;
+        latestBookPushPending.delete(bookId);
+        lastResult = await performBookPush(next.cartridge, next.updatedAt);
+      }
+    } finally {
+      bookPushChains.delete(bookId);
+    }
+    return lastResult;
+  })();
+
+  bookPushChains.set(bookId, chain);
+  return chain;
 }
 
 export async function deleteBookFromCloud(bookId: string): Promise<boolean> {
