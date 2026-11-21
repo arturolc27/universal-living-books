@@ -1230,13 +1230,38 @@ export function selectActiveLessonRaw(state: PlatformState): MicroLesson | null 
   return null;
 }
 
+const mergedTranslatedLessonCache = new WeakMap<MicroLesson, WeakMap<MicroLesson, MicroLesson>>();
+
 export function selectActiveLesson(state: PlatformState): MicroLesson | null {
   const base = selectActiveLessonRaw(state);
   if (!base || !state.activeBookId) return base;
   const cacheKey = `${state.activeBookId}::${base.lessonId}::${state.preferredLanguage}`;
   const cached = state.translatedLessons[cacheKey];
   if (!cached) return base;
-  return {
+
+  const needsSource = !cached.sourceBookMarkdown && Boolean(base.sourceBookMarkdown);
+  const needsPageRange = !cached.sourcePageRange && Boolean(base.sourcePageRange);
+  const needsDeepDive = !cached.deepDive && Boolean(base.deepDive);
+  const needsExerciseBank =
+    (!cached.exerciseBank || cached.exerciseBank.length === 0) &&
+    Boolean(base.exerciseBank && base.exerciseBank.length > 0);
+  const needsCompetencies =
+    (!cached.competencyIds || cached.competencyIds.length === 0) &&
+    Boolean(base.competencyIds && base.competencyIds.length > 0);
+
+  if (!needsSource && !needsPageRange && !needsDeepDive && !needsExerciseBank && !needsCompetencies) {
+    return cached;
+  }
+
+  let byBase = mergedTranslatedLessonCache.get(cached);
+  if (!byBase) {
+    byBase = new WeakMap<MicroLesson, MicroLesson>();
+    mergedTranslatedLessonCache.set(cached, byBase);
+  }
+  const existing = byBase.get(base);
+  if (existing) return existing;
+
+  const merged: MicroLesson = {
     ...cached,
     sourceBookMarkdown: cached.sourceBookMarkdown || base.sourceBookMarkdown,
     sourcePageRange: cached.sourcePageRange || base.sourcePageRange,
@@ -1250,6 +1275,8 @@ export function selectActiveLesson(state: PlatformState): MicroLesson | null {
         ? cached.competencyIds
         : base.competencyIds,
   };
+  byBase.set(base, merged);
+  return merged;
 }
 
 export function selectActiveBlock(state: PlatformState): LessonBlock | null {

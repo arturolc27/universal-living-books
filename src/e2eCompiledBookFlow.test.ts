@@ -478,7 +478,11 @@ describe('usePlatformStore lesson progression state machine', () => {
       },
     });
 
-    const active = selectActiveLesson(usePlatformStore.getState());
+    const snapshot = usePlatformStore.getState();
+    const active = selectActiveLesson(snapshot);
+    const activeSecondCall = selectActiveLesson(snapshot);
+    // Crucial para Zustand/useSyncExternalStore: evita React Error #185 (infinite loop)
+    expect(activeSecondCall).toBe(active);
     expect(active?.title).toBe('Lección 1 Traducida');
     expect(active?.sourceBookMarkdown).toContain('Texto real completo del libro original.');
     expect(active?.sourcePageRange).toBe('Pág. 1');
