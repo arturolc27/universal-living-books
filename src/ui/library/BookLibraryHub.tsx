@@ -1,7 +1,23 @@
 import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { BookOpen, Plus, Package, Layers, Sparkles, Play, Clock, Zap, Wand2, Download, Trash2 } from 'lucide-react';
+import {
+  BookOpen,
+  Plus,
+  Package,
+  Layers,
+  Sparkles,
+  Play,
+  Clock,
+  Zap,
+  Wand2,
+  Download,
+  Trash2,
+  Brain,
+  BookMarked,
+  Compass,
+} from 'lucide-react';
 import { usePlatformStore } from '../../store/usePlatformStore';
+import { PYTHON_COMPETENCIES } from '../../data/pythonTaxonomy';
 import { CartridgeImporterModal } from './CartridgeImporterModal';
 import { CompilerStudioModal } from './CompilerStudioModal';
 import { cn } from '../utils/cn';
@@ -12,8 +28,12 @@ export function BookLibraryHub() {
   const cartridges = usePlatformStore((s) => s.cartridges);
   const openBook = usePlatformStore((s) => s.openBook);
   const deleteBook = usePlatformStore((s) => s.deleteBook);
+  const setGlobalRoute = usePlatformStore((s) => s.setGlobalRoute);
   const lessonProgressMap = usePlatformStore((s) => s.lessonProgressMap);
   const srsStates = usePlatformStore((s) => s.srsStates);
+  const globalConcepts = usePlatformStore((s) => s.globalConcepts);
+  const globalCompetencyMastery = usePlatformStore((s) => s.globalCompetencyMastery);
+  const exerciseBankCount = usePlatformStore((s) => s.exerciseBankCount);
   const [showImporter, setShowImporter] = useState(false);
   const [showCompiler, setShowCompiler] = useState(false);
 
@@ -49,12 +69,26 @@ export function BookLibraryHub() {
     const now = Date.now();
     const map: Record<string, number> = {};
     for (const s of Object.values(srsStates)) {
-      if (s.failedInPcLab || s.nextReviewTimestamp <= now) {
+      const isEnrolled = Boolean(s.enrolled || s.failedInPcLab || s.repetitions > 0 || (s.reps ?? 0) > 0);
+      if (isEnrolled && (s.failedInPcLab || s.nextReviewTimestamp <= now)) {
         map[s.bookId] = (map[s.bookId] ?? 0) + 1;
       }
     }
     return map;
   }, [srsStates]);
+
+  const totalDueGlobal = useMemo(
+    () => Object.values(dueCardsByBook).reduce((a, b) => a + b, 0),
+    [dueCardsByBook]
+  );
+
+  const globalPythonScore = useMemo(() => {
+    const total = PYTHON_COMPETENCIES.reduce(
+      (acc, c) => acc + (globalCompetencyMastery[c.id]?.masteryScore ?? 0),
+      0
+    );
+    return Math.round(total / PYTHON_COMPETENCIES.length);
+  }, [globalCompetencyMastery]);
 
   const progressFor = (bookId: string) => progressByBook[bookId] ?? 0;
   const dueCardsFor = (bookId: string) => dueCardsByBook[bookId] ?? 0;
@@ -73,13 +107,13 @@ export function BookLibraryHub() {
         <div className="mx-auto max-w-6xl">
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
             <span className="inline-flex items-center gap-1.5 rounded-full border border-subtle bg-surface/60 px-3 py-1 text-[11px] text-muted">
-              <Sparkles size={12} className="text-accent" /> Motor Universal de Libros Vivos v2.1
+              <Sparkles size={12} className="text-accent" /> Motor Universal de Libros Vivos v3.0 · FSRS + Knowledge Graph
             </span>
             <h1 className="mt-3 text-2xl font-bold tracking-tight text-primary sm:mt-4 sm:text-4xl">
               Tu biblioteca <span className="gradient-text">interactiva</span> de Python
             </h1>
             <p className="mt-1.5 max-w-2xl text-xs leading-relaxed text-muted sm:mt-2 sm:text-sm">
-              Cursos interactivos offline: lee conceptos, practica sintaxis rápida en móvil y domina laboratorios en PC.
+              Cursos interactivos offline: lee libros técnicos con Deep Dive, practica en móvil ({exerciseBankCount} ejercicios offline) y construye dominio real en Python.
             </p>
             <div className="mt-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
               <button
@@ -98,6 +132,59 @@ export function BookLibraryHub() {
               </button>
             </div>
           </motion.div>
+
+          {/* Accesos Directos Globales (Desacoplados del libro) */}
+          <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <button
+              type="button"
+              onClick={() => setGlobalRoute('GLOBAL_SRS')}
+              className="surface-card flex items-center gap-3 p-3.5 text-left transition-all hover:border-accent/60"
+            >
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-secondary/15 text-secondary">
+                <Brain size={19} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold text-primary">Hub Global FSRS</p>
+                <p className="text-[11px] text-muted">
+                  {totalDueGlobal > 0
+                    ? `${totalDueGlobal} tarjetas pendientes ahora`
+                    : 'Repaso espaciado tipo Anki'}
+                </p>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setGlobalRoute('DICTIONARY')}
+              className="surface-card flex items-center gap-3 p-3.5 text-left transition-all hover:border-accent/60"
+            >
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent/15 text-accent">
+                <BookMarked size={19} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold text-primary">Diccionario Transversal</p>
+                <p className="text-[11px] text-muted">
+                  {globalConcepts.length} conceptos · evaluables offline
+                </p>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setGlobalRoute('PYTHON_ROADMAP')}
+              className="surface-card flex items-center gap-3 p-3.5 text-left transition-all hover:border-accent/60"
+            >
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-success/15 text-success">
+                <Compass size={19} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold text-primary">Ruta Global Python</p>
+                <p className="text-[11px] text-muted">
+                  Dominio demostrado: {globalPythonScore}/100
+                </p>
+              </div>
+            </button>
+          </div>
 
           {continueBook && (
             <motion.button

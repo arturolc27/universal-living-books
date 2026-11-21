@@ -17,6 +17,7 @@ import {
   Sparkles,
   CircleDot,
   Lock,
+  Layers,
 } from 'lucide-react';
 import {
   usePlatformStore,
@@ -25,6 +26,7 @@ import {
   computeLessonMasteryTier,
 } from '../../store/usePlatformStore';
 import { EditorialReader } from './EditorialReader';
+import { ExerciseBankDrawer } from './ExerciseBankDrawer';
 import { VirtualFileDrawer } from './VirtualFileDrawer';
 import { renderBlockWidget, isInteractiveBlock } from '../../registry/widgetRegistry';
 import { MasteryPathMap } from '../gamification/MasteryPathMap';
@@ -93,6 +95,7 @@ export function DesktopStudioShell() {
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('ACTIVITY');
   const [studioView, setStudioView] = useState<StudioView>('LESSON');
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [bankOpen, setBankOpen] = useState(false);
 
   const chapter = cartridge?.chapters.find((c) => c.chapterId === activeChapterId) ?? cartridge?.chapters[0];
   const isFastTrack = Boolean(cartridge && chapter && fastTrackChapters[`${cartridge.bookId}::${chapter.chapterId}`]);
@@ -180,11 +183,16 @@ export function DesktopStudioShell() {
     setWorkspaceTab('SANDBOX');
   };
 
+  const lessonIdxInChapter = Math.max(
+    0,
+    chapter.microLessons.findIndex((ml) => ml.lessonId === lesson.lessonId)
+  );
+
   const workspaceTabs: Array<{ id: WorkspaceTab; label: string; icon: typeof Sparkles }> = [
     { id: 'ACTIVITY', label: 'Actividad', icon: Sparkles },
     { id: 'SANDBOX', label: 'Sandbox Python', icon: FileCode2 },
     { id: 'VFS', label: 'Archivos VFS', icon: FolderTree },
-    { id: 'SRS', label: 'SM-2', icon: Trophy },
+    { id: 'SRS', label: 'FSRS', icon: Trophy },
     { id: 'MAP', label: 'Mapa', icon: BookOpen },
   ];
 
@@ -224,6 +232,15 @@ export function DesktopStudioShell() {
         </div>
 
         <div className="ml-auto flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => setBankOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-secondary/40 bg-secondary/10 px-2.5 py-1 text-[11px] font-semibold text-secondary hover:bg-secondary/20"
+            title="Practicar banco offline o generar ejercicios verificados en Pyodide con IA"
+          >
+            <Layers size={12} /> Banco / IA
+          </button>
+
           {/* Selector Bilingüe ES / EN con caché local */}
           <div className="flex items-center gap-0.5 rounded-lg border border-subtle bg-canvas p-0.5">
             <Languages size={12} className="mx-1.5 text-muted" />
@@ -333,11 +350,20 @@ export function DesktopStudioShell() {
 
             <div className="min-h-0 flex-1">
               <EditorialReader
+                key={`${cartridge.bookId}::${lesson.lessonId}`}
                 cartridge={cartridge}
+                lessonId={lesson.lessonId}
+                lessonTitle={lesson.title}
+                chapterNumber={chapter.number}
+                chapterTitle={chapter.title}
+                lessonIndex={lessonIdxInChapter}
+                totalLessonsInChapter={chapter.microLessons.length}
                 blocks={lesson.blocks}
+                activeBlockIndex={safeActiveIdx}
                 unlockedBlockIndex={Math.max(unlockedBlockIndex, safeActiveIdx)}
                 learningObjectives={lesson.learningObjectives}
                 takeaways={lesson.takeaways}
+                deepDive={lesson.deepDive}
                 sourceBookMarkdown={lesson.sourceBookMarkdown}
                 sourcePageRange={lesson.sourcePageRange}
                 onTryCode={handleTrySnippet}
@@ -365,10 +391,10 @@ export function DesktopStudioShell() {
                   <button
                     type="button"
                     onClick={() => void handleSkipWithReinforcement()}
-                    title="Resuelve el reto a la derecha para avanzar limpio, o márcalo para repaso SRS"
+                    title="Resuelve el reto a la derecha para avanzar limpio, o márcalo para repaso FSRS"
                     className="flex items-center gap-1 rounded-lg border border-secondary/50 bg-secondary/10 px-2.5 py-1.5 text-[11px] font-semibold text-secondary hover:bg-secondary/20"
                   >
-                    Marcar para refuerzo SRS y avanzar
+                    Marcar para refuerzo FSRS y avanzar
                   </button>
                 ) : (
                   <button
@@ -484,6 +510,16 @@ export function DesktopStudioShell() {
             </div>
           </section>
         </div>
+      )}
+
+      {bankOpen && (
+        <ExerciseBankDrawer
+          bookId={cartridge.bookId}
+          chapterId={chapter.chapterId}
+          lesson={lesson}
+          deviceMode="PC"
+          onClose={() => setBankOpen(false)}
+        />
       )}
     </div>
   );

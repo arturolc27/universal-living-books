@@ -2,7 +2,9 @@ import Dexie, { type Table } from 'dexie';
 import type {
   BookCartridge,
   Chapter,
+  DeepDiveSection,
   GlossaryEntry,
+  LessonBlock,
   MasteryTier,
   MemoryStep,
   PythonMisconceptionId,
@@ -25,6 +27,8 @@ export interface LessonProgressRecord {
   updatedAt: number;
 }
 
+export type FsrsCardState = 'NEW' | 'LEARNING' | 'REVIEW' | 'RELEARNING';
+
 export interface SrsCardStateRecord {
   bookId: string;
   cardId: string;
@@ -37,7 +41,21 @@ export interface SrsCardStateRecord {
   enrolledAt?: number;
   sourceBlockId?: string;
   conceptTags?: string[];
+  competencyIds?: string[];
   misconceptionId?: PythonMisconceptionId;
+  // Campos FSRS v4.5 (retrocompatibles con registros SM-2 existentes)
+  stability?: number;
+  difficulty?: number;
+  elapsedDays?: number;
+  scheduledDays?: number;
+  reps?: number;
+  lapses?: number;
+  fsrsState?: FsrsCardState;
+  lastReviewAt?: number;
+  // Metadatos desnormalizados para Global SRS Hub sin abrir libro
+  chapterId?: string;
+  chapterNumber?: number;
+  lessonId?: string;
   updatedAt: number;
 }
 
@@ -56,13 +74,91 @@ export interface ConceptMasteryRecord {
   updatedAt: number;
 }
 
+/**
+ * Fuente de verdad libro-agnóstica de dominio en Python (PK: competencyId canónico).
+ * Agrega evidencia de todos los libros, diccionario y Global SRS Hub.
+ */
+export interface GlobalCompetencyMasteryRecord {
+  competencyId: string;
+  status: ConceptMasteryStatus;
+  masteryScore: number;
+  predictionHits: number;
+  predictionAttempts: number;
+  activeExercisesPassed: number;
+  activeExercisesAttempts: number;
+  transferPassed: boolean;
+  delayedReviewPassed: boolean;
+  fsrsMaxStability: number;
+  misconceptionHits: Record<string, number>;
+  misconceptionResolved: string[];
+  sourceBookIds: string[];
+  lastPracticedAt: number;
+  updatedAt: number;
+}
+
+export interface ConceptSourceRef {
+  bookId: string;
+  bookTitle: string;
+  chapterId: string;
+  chapterNumber: number;
+  lessonId: string;
+  lessonTitle: string;
+  pageRef?: number;
+}
+
+/**
+ * Diccionario técnico transversal consolidado entre múltiples libros (offline-first).
+ */
+export interface GlobalConceptRecord {
+  conceptKey: string;
+  term: string;
+  aliases: string[];
+  definition: string;
+  snippet?: string;
+  deepDive?: DeepDiveSection;
+  competencyIds: string[];
+  sources: ConceptSourceRef[];
+  updatedAt: number;
+}
+
+/**
+ * Banco persistente offline de ejercicios (precompilados y generados por IA validados en Pyodide).
+ */
+export interface ExerciseBankRecord {
+  exerciseId: string;
+  bookId: string;
+  chapterId: string;
+  lessonId: string;
+  blockType: LessonBlock['type'];
+  mobileFriendly: boolean;
+  origin: 'PRECOMPILED' | 'AI_GENERATED';
+  verifiedWithPyodide: boolean;
+  competencyIds: string[];
+  conceptKeys: string[];
+  block: LessonBlock;
+  createdAt: number;
+}
+
+/**
+ * Caché local de profundizaciones (Deep Dive) generadas bajo demanda.
+ */
+export interface DeepDiveCacheRecord {
+  cacheKey: string;
+  bookId: string;
+  lessonId: string;
+  conceptKey?: string;
+  deepDive: DeepDiveSection;
+  updatedAt: number;
+}
+
 export type TelemetryEventType =
   | 'PREDICTION_ATTEMPT'
   | 'TRANSFER_LAB'
   | 'SRS_DELAYED_REVIEW'
   | 'MISCONCEPTION_TRIGGERED'
   | 'MISCONCEPTION_RESOLVED'
-  | 'THRASHING_DETECTED';
+  | 'THRASHING_DETECTED'
+  | 'DICTIONARY_MICRO_EVAL';
 
 export interface LearningTelemetryRecord {
   id?: number;
@@ -71,6 +167,7 @@ export interface LearningTelemetryRecord {
   blockId?: string;
   eventType: TelemetryEventType;
   conceptTag?: string;
+  competencyId?: string;
   misconceptionId?: PythonMisconceptionId;
   passed?: boolean;
   latencyMs?: number;
@@ -159,6 +256,10 @@ export class LivingBooksDB extends Dexie {
   lessonTranslations!: Table<LessonTranslationRecord, [string, string, string]>;
   conceptMastery!: Table<ConceptMasteryRecord, [string, string]>;
   learningTelemetry!: Table<LearningTelemetryRecord, number>;
+  concepts!: Table<GlobalConceptRecord, string>;
+  exerciseBank!: Table<ExerciseBankRecord, string>;
+  globalCompetencyMastery!: Table<GlobalCompetencyMasteryRecord, string>;
+  deepDiveCache!: Table<DeepDiveCacheRecord, string>;
 
   constructor() {
     super('LivingBooksDB_v2');
@@ -187,6 +288,12 @@ export class LivingBooksDB extends Dexie {
     this.version(6).stores({
       conceptMastery: '[bookId+conceptTag], bookId, conceptTag, status, updatedAt',
       learningTelemetry: '++id, bookId, eventType, conceptTag, createdAt',
+    });
+    this.version(7).stores({
+      concepts: 'conceptKey, term, *aliases, *competencyIds, updatedAt',
+      exerciseBank: 'exerciseId, bookId, lessonId, blockType, mobileFriendly, origin, *competencyIds, *conceptKeys, createdAt',
+      globalCompetencyMastery: 'competencyId, status, masteryScore, updatedAt',
+      deepDiveCache: 'cacheKey, bookId, lessonId, updatedAt',
     });
 
     // Diagnostico: evita cuelgues silenciosos por bloqueos de version.

@@ -9,7 +9,7 @@ import type {
 } from '../../types/compiler.types';
 import { validateBookCartridge } from '../../types/cartridge.schema';
 import { livingBooksDb, upsertCompiledChapterToBook } from '../../db/dexieDb';
-import { pythonRuntimeBridge } from '../pyodide/pythonRuntimeBridge';
+import { verifyExerciseBlockWithPyodide } from './dynamicExerciseGenerator';
 import { buildCompilerSystemInstruction, MICROLESSON_RESPONSE_SCHEMA } from './llmCompiler';
 import { formatBookSourceMarkdown, sanitizeLesson } from './lessonSanitizer';
 import { parseJsonLoose } from './metadataTocExtractor';
@@ -491,51 +491,31 @@ export class ParallelBookCompiler {
     const verifiedBlocks = [...lesson.blocks];
     for (let i = 0; i < verifiedBlocks.length; i += 1) {
       const blk = verifiedBlocks[i];
-      if (blk.type === 'OUTPUT_PREDICTION' && blk.codeSnippet.trim()) {
-        try {
-          const res = await Promise.race([
-            pythonRuntimeBridge.executeAndEvaluate(blk.codeSnippet),
-            sleep(3000).then(() => null),
-          ]);
-          if (res) {
-            if (!res.ok) {
-              const errIdx = blk.options.findIndex((o) => /error|exception|traceback/i.test(o));
-              if (errIdx >= 0) {
-                verifiedBlocks[i] = { ...blk, correctOptionIndex: errIdx, expectedReturnType: 'Error' };
-              }
-            } else {
-              const actualOut = res.stdout.trim();
-              if (actualOut && blk.options[blk.correctOptionIndex]?.trim() !== actualOut) {
-                const matchIdx = blk.options.findIndex((o) => o.trim() === actualOut);
-                if (matchIdx >= 0) {
-                  verifiedBlocks[i] = { ...blk, correctOptionIndex: matchIdx };
-                } else {
-                  const updatedOpts = [...blk.options];
-                  updatedOpts[blk.correctOptionIndex] = actualOut;
-                  verifiedBlocks[i] = { ...blk, options: updatedOpts };
-                }
-              }
-            }
-          }
-        } catch {
-          // Si Pyodide no está disponible en este entorno, conservar el bloque saneado
-        }
-      } else if (blk.type === 'BUG_AUTOPSY' && blk.codeSnippet.trim()) {
-        try {
-          const res = await Promise.race([
-            pythonRuntimeBridge.executeAndEvaluate(blk.codeSnippet),
-            sleep(3000).then(() => null),
-          ]);
-          if (res && !res.ok && res.stderr.trim()) {
-            verifiedBlocks[i] = { ...blk, tracebackText: res.stderr.trim().slice(0, 600) };
-          }
-        } catch {
-          // ignore
-        }
+      if (
+        blk.type === 'OUTPUT_PREDICTION' ||
+        blk.type === 'BUG_AUTOPSY' ||
+        blk.type === 'PARSONS_PROBLEM' ||
+        blk.type === 'SYNTAX_CLOZE' ||
+        blk.type === 'CODE_LAB'
+      ) {
+        const check = await verifyExerciseBlockWithPyodide(blk);
+        verifiedBlocks[i] = check.block;
       }
     }
 
-    return { ...lesson, blocks: verifiedBlocks };
+    let verifiedBank = lesson.exerciseBank;
+    if (lesson.exerciseBank && lesson.exerciseBank.length > 0) {
+      const kept = [];
+      for (const extra of lesson.exerciseBank) {
+        const check = await verifyExerciseBlockWithPyodide(extra);
+        if (check.valid) {
+          kept.push(check.block);
+        }
+      }
+      verifiedBank = kept.length > 0 ? kept : undefined;
+    }
+
+    return { ...lesson, blocks: verifiedBlocks, exerciseBank: verifiedBank };
   }
 
   private syntheticLesson(chunk: SectionChunk): MicroLesson {

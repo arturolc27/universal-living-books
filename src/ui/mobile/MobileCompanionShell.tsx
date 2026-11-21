@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   BookOpen,
   Zap,
@@ -11,9 +11,11 @@ import {
   Globe,
   Loader2,
   CheckCircle2,
+  Layers,
 } from 'lucide-react';
 import { usePlatformStore, selectActiveCartridge, selectActiveLesson } from '../../store/usePlatformStore';
 import { EditorialReader } from '../studio/EditorialReader';
+import { ExerciseBankDrawer } from '../studio/ExerciseBankDrawer';
 import { renderBlockWidget, isInteractiveBlock } from '../../registry/widgetRegistry';
 import { Sm2FlashcardArena } from './Sm2FlashcardArena';
 import { MasteryPathMap } from '../gamification/MasteryPathMap';
@@ -23,6 +25,7 @@ import { cn } from '../utils/cn';
 export function MobileCompanionShell() {
   const cartridge = usePlatformStore(selectActiveCartridge);
   const lesson = usePlatformStore(selectActiveLesson);
+  const activeChapterId = usePlatformStore((s) => s.activeChapterId);
   const mobileTab = usePlatformStore((s) => s.mobileTab);
   const setMobileTab = usePlatformStore((s) => s.setMobileTab);
   const activeBlockIndex = usePlatformStore((s) => s.activeBlockIndex);
@@ -34,8 +37,25 @@ export function MobileCompanionShell() {
   const isTranslatingLesson = usePlatformStore((s) => s.isTranslatingLesson);
   const setStudyLanguage = usePlatformStore((s) => s.setStudyLanguage);
   const [showSyllabus, setShowSyllabus] = useState(false);
+  const [bankOpen, setBankOpen] = useState(false);
 
-  if (!cartridge || !lesson) {
+  const practiceScrollRef = useRef<HTMLDivElement>(null);
+
+  const totalBlocks = lesson?.blocks.length ?? 0;
+  const maxIndex = Math.max(0, totalBlocks - 1);
+  const safeActiveIndex = Math.min(activeBlockIndex, maxIndex);
+
+  // Resetear scroll de práctica al cambiar de lección o de paso interactivo
+  useEffect(() => {
+    if (practiceScrollRef.current) {
+      practiceScrollRef.current.scrollTop = 0;
+    }
+  }, [lesson?.lessonId, safeActiveIndex]);
+
+  const chapter =
+    cartridge?.chapters.find((c) => c.chapterId === activeChapterId) ?? cartridge?.chapters[0];
+
+  if (!cartridge || !lesson || !chapter) {
     return (
       <div className="flex h-full items-center justify-center bg-canvas text-sm text-muted">
         Cargando curso...
@@ -43,9 +63,10 @@ export function MobileCompanionShell() {
     );
   }
 
-  const totalBlocks = lesson.blocks.length;
-  const maxIndex = Math.max(0, totalBlocks - 1);
-  const safeActiveIndex = Math.min(activeBlockIndex, maxIndex);
+  const lessonIdxInChapter = Math.max(
+    0,
+    chapter.microLessons.findIndex((ml) => ml.lessonId === lesson.lessonId)
+  );
   const currentBlock = lesson.blocks[safeActiveIndex];
   const isInteractive = Boolean(currentBlock && isInteractiveBlock(currentBlock));
   const isLastBlock = safeActiveIndex >= maxIndex;
@@ -100,7 +121,7 @@ export function MobileCompanionShell() {
   const tabs = [
     { id: 'READ' as const, label: 'Leer', icon: BookOpen },
     { id: 'PRACTICE' as const, label: 'Práctica', icon: Zap },
-    { id: 'SRS' as const, label: 'SM-2', icon: Trophy },
+    { id: 'SRS' as const, label: 'FSRS', icon: Trophy },
     { id: 'MAP' as const, label: 'Mapa', icon: Map },
   ];
 
@@ -122,9 +143,18 @@ export function MobileCompanionShell() {
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-semibold text-primary">{lesson.title}</p>
           <p className="text-[10px] text-muted">
-            Paso {totalBlocks > 0 ? safeActiveIndex + 1 : 0} de {totalBlocks} • Móvil
+            Mód {chapter.number} · Paso {totalBlocks > 0 ? safeActiveIndex + 1 : 0}/{totalBlocks}
           </p>
         </div>
+
+        <button
+          type="button"
+          onClick={() => setBankOpen(true)}
+          className="flex shrink-0 items-center gap-1 rounded-lg border border-secondary/40 bg-secondary/10 px-2 py-1 text-[10px] font-semibold text-secondary"
+          title="Banco de ejercicios táctiles offline + IA"
+        >
+          <Layers size={11} /> Banco
+        </button>
 
         <button
           type="button"
@@ -144,9 +174,9 @@ export function MobileCompanionShell() {
             setMobileTab('SRS');
           }}
           className="flex shrink-0 items-center gap-1 rounded-lg border border-accent/40 bg-accent/10 px-2 py-1 text-[10px] font-semibold text-accent"
-          title="Sesión rápida de 5 minutos (SM-2)"
+          title="Sesión rápida de 5 minutos (FSRS)"
         >
-          <Clock size={11} /> 5 min
+          <Clock size={11} /> 5m
         </button>
       </div>
 
@@ -159,11 +189,20 @@ export function MobileCompanionShell() {
               <div className="flex h-full flex-col">
                 <div className="min-h-0 flex-1 overflow-hidden">
                   <EditorialReader
+                    key={`${cartridge.bookId}::${lesson.lessonId}`}
                     cartridge={cartridge}
+                    lessonId={lesson.lessonId}
+                    lessonTitle={lesson.title}
+                    chapterNumber={chapter.number}
+                    chapterTitle={chapter.title}
+                    lessonIndex={lessonIdxInChapter}
+                    totalLessonsInChapter={chapter.microLessons.length}
                     blocks={lesson.blocks}
+                    activeBlockIndex={safeActiveIndex}
                     unlockedBlockIndex={Math.max(unlockedBlockIndex, safeActiveIndex)}
                     learningObjectives={lesson.learningObjectives}
                     takeaways={lesson.takeaways}
+                    deepDive={lesson.deepDive}
                     sourceBookMarkdown={lesson.sourceBookMarkdown}
                     sourcePageRange={lesson.sourcePageRange}
                     onRecompileBook={() => usePlatformStore.getState().setCompilerOpen(true)}
@@ -202,7 +241,7 @@ export function MobileCompanionShell() {
             )}
             {mobileTab === 'PRACTICE' && (
               <div className="flex h-full flex-col overflow-hidden">
-                <div className="min-h-0 flex-1 overflow-y-auto">
+                <div ref={practiceScrollRef} className="min-h-0 flex-1 overflow-y-auto">
                   {isInteractive && currentBlock ? (
                     renderBlockWidget(currentBlock, {
                       onResolved: handleResolved,
@@ -212,15 +251,24 @@ export function MobileCompanionShell() {
                     <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
                       <Zap size={22} className="text-muted" />
                       <p className="text-xs text-muted">
-                        Este paso es de lectura conceptual. Avanza para continuar con la lección o el siguiente reto.
+                        Este paso es de lectura conceptual. Avanza para continuar o abre el banco de ejercicios táctiles de esta lección.
                       </p>
-                      <button
-                        type="button"
-                        onClick={handleNextStep}
-                        className="flex items-center gap-1.5 rounded-xl bg-accent px-4 py-2 text-xs font-semibold text-canvas"
-                      >
-                        {isLastBlock ? 'Siguiente lección' : 'Continuar'} <ArrowRight size={13} />
-                      </button>
+                      <div className="flex flex-wrap justify-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleNextStep}
+                          className="flex items-center gap-1.5 rounded-xl bg-accent px-4 py-2 text-xs font-semibold text-canvas"
+                        >
+                          {isLastBlock ? 'Siguiente lección' : 'Continuar'} <ArrowRight size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setBankOpen(true)}
+                          className="flex items-center gap-1.5 rounded-xl border border-accent/40 bg-accent/10 px-4 py-2 text-xs font-semibold text-accent"
+                        >
+                          <Layers size={13} /> Banco de ejercicios
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -265,6 +313,16 @@ export function MobileCompanionShell() {
           </button>
         ))}
       </nav>
+
+      {bankOpen && (
+        <ExerciseBankDrawer
+          bookId={cartridge.bookId}
+          chapterId={chapter.chapterId}
+          lesson={lesson}
+          deviceMode="MOBILE"
+          onClose={() => setBankOpen(false)}
+        />
+      )}
     </div>
   );
 }

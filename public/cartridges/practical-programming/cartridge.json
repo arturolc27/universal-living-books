@@ -40,35 +40,53 @@
   "glossary": {
     "variable": {
       "term": "variable",
+      "aliases": ["variables", "nombre", "etiqueta", "binding"],
       "definition": "Nombre que referencia un objeto en memoria. En Python, asignar una variable no copia el objeto: solo enlaza el nombre a un objeto existente.",
       "chapterIntroduced": 2,
       "pageRef": 24,
-      "snippet": "difference = 20"
+      "lessonId": "pp-ch2-l1",
+      "competencyIds": ["py.memory.names_and_objects"],
+      "snippet": "difference = 20\nprint(difference, id(difference))"
     },
     "object": {
       "term": "object",
-      "definition": "Entidad en el heap con un tipo y un valor. Cada objeto tiene una identidad unica accesible mediante la funcion id().",
+      "aliases": ["objeto", "objetos", "objects", "heap object"],
+      "definition": "Entidad en el heap con un tipo, una identidad única (id) y un valor. Todo en Python —números, strings, listas e incluso funciones— es un objeto.",
       "chapterIntroduced": 2,
       "pageRef": 25,
-      "snippet": "id(20)"
+      "lessonId": "pp-ch2-l1",
+      "competencyIds": ["py.memory.names_and_objects"],
+      "snippet": "x = 20\nprint(type(x), id(x))"
     },
     "namespace": {
       "term": "namespace",
-      "definition": "Espacio aislado de nombres creado al llamar una funcion. Las variables locales nacen y mueren dentro de ese frame.",
+      "aliases": ["espacio de nombres", "frame", "scope", "ámbito"],
+      "definition": "Espacio aislado de nombres creado al llamar una función. Las variables locales nacen al entrar en la llamada y mueren al retornar.",
       "chapterIntroduced": 3,
-      "pageRef": 41
+      "pageRef": 41,
+      "lessonId": "pp-ch3-l1",
+      "competencyIds": ["py.memory.call_stack_frames", "py.func.legb_scope"],
+      "snippet": "def f(x):\n    x = x * 2\n    return x\nx = 1\nprint(f(x), x)"
     },
     "aliasing": {
       "term": "aliasing",
-      "definition": "Dos o mas nombres que referencian el mismo objeto. Mutar a traves de un alias afecta a todos los demas.",
+      "aliases": ["alias", "referencia compartida"],
+      "definition": "Dos o más nombres que referencian exactamente el mismo objeto en el heap. Si el objeto es mutable, mutarlo a través de un alias afecta a todos los demás.",
       "chapterIntroduced": 2,
-      "pageRef": 30
+      "pageRef": 30,
+      "lessonId": "pp-ch2-l1",
+      "competencyIds": ["py.memory.aliasing", "py.memory.mutability"],
+      "snippet": "a = [1, 2]\nb = a\nb.append(3)\nprint(a, a is b)"
     },
     "precedence": {
       "term": "precedence",
-      "definition": "Orden en que Python evalua los operadores. La exponenciacion ** se evalua antes que la negacion unaria y la multiplicacion.",
+      "aliases": ["precedencia", "orden de operadores"],
+      "definition": "Orden en que Python evalúa los operadores en una expresión. La exponenciación ** se evalúa antes que la negación unaria y la multiplicación.",
       "chapterIntroduced": 2,
-      "pageRef": 28
+      "pageRef": 28,
+      "lessonId": "pp-ch2-l1",
+      "competencyIds": ["py.basics.operator_precedence"],
+      "snippet": "print(-2 ** 4, (-2) ** 4)"
     }
   },
   "achievements": [
@@ -89,7 +107,7 @@
     {
       "id": "srs-starter",
       "title": "Repaso Constante",
-      "description": "Completa 3 repasos SM-2 en el companero movil.",
+      "description": "Completa 3 repasos FSRS en el hub o companero movil.",
       "iconKey": "trophy",
       "rule": { "metric": "SRS_REVIEWS", "threshold": 3 }
     }
@@ -106,6 +124,85 @@
           "order": 1,
           "title": "Nombres, Objetos y Reasignacion",
           "estimatedMinutes": 12,
+          "competencyIds": [
+            "py.memory.names_and_objects",
+            "py.memory.aliasing",
+            "py.basics.operator_precedence"
+          ],
+          "learningObjectives": [
+            "Distinguir entre un nombre (variable) en un frame y el objeto real almacenado en el heap.",
+            "Trazar reasignaciones sucesivas sin confundirlas con mutación in-place.",
+            "Evaluar correctamente la precedencia de operadores como `-2 ** 4`."
+          ],
+          "takeaways": [
+            "Asignar en Python (`x = expr`) evalúa primero la derecha y luego enlaza el nombre al objeto resultante.",
+            "Reasignar un nombre nunca altera un objeto inmutable existente; solo mueve la flecha a otro objeto.",
+            "La exponenciación `**` tiene mayor precedencia que el signo negativo unario `-`."
+          ],
+          "sourcePageRange": "Págs. 24–31",
+          "sourceBookMarkdown": "##### Página 24\n\n### 2.4 Variables and Computer Memory: Remembering Values\n\nLike mathematicians, programmers frequently name values so that they can use them later. A name that refers to a value is called a **variable**. In Python, variable names can use letters, digits, and the underscore symbol (but they cannot start with a digit).\n\n```python\ndegrees_celsius = 26.0\n```\n\nThis statement is called an **assignment statement**. Python executes an assignment statement in two strict steps:\n\n1. Evaluate the expression on the right of the `=` sign to produce an **object** in memory with a type, a value, and a memory address (`id`).\n2. Store that object's memory address in the variable on the left of the `=` sign (creating the variable in the current frame if it does not yet exist).\n\n---\n\n##### Página 27\n\n### Reassigning to Variables\n\n```python\ndifference = 20\ndouble = 2 * difference\ndifference = 5\n```\n\nNotice that changing `difference` to `5` does **not** retroactively change `double`. Python variables are not spreadsheet formulas: `double` already holds the memory address of the integer object `40`. Reassigning `difference` simply moves its reference arrow to the new integer object `5`, leaving the old object `20` orphaned if nothing else references it.\n\n---\n\n##### Página 28\n\n### Operator Precedence and Aliasing\n\nWhen combining operators, Python follows strict precedence rules: exponentiation `**` binds tighter than unary negation `-`, so `-2 ** 4` evaluates as `-(2 ** 4) == -16`, whereas `(-2) ** 4 == 16`.\n\nWhen two variable names store the same memory address, we call this **aliasing**. With immutable objects (`int`, `float`, `str`), aliasing is harmless; with mutable objects (`list`, `dict`), mutating through one alias is immediately visible through the other.",
+          "deepDive": {
+            "internalMechanics": "En CPython, cada objeto en el heap se representa con una cabecera PyObject que almacena su contador de referencias (ob_refcnt) y un puntero a su tipo (ob_type). Un nombre en un frame (locals/globals) es una entrada de diccionario o ranura rápida que guarda un puntero a ese PyObject. Reasignar decrementa ob_refcnt del objeto previo y lo incrementa en el nuevo.",
+            "edgeCases": [
+              "CPython aplica interning a enteros pequeños (-5 a 256): dos variables con valor 20 suelen compartir el mismo id() por optimización, pero con 10000 no está garantizado. Nunca uses `is` para comparar números.",
+              "La exponenciación es asociativa por la derecha: `2 ** 3 ** 2` equivale a `2 ** (3 ** 2) = 512`, no `(2 ** 3) ** 2 = 64`.",
+              "En asignaciones aumentadas (`a += [3]` vs `a = a + [3]`), las listas mutan in-place con `+=` (afectando aliases), mientras `+` crea un objeto nuevo."
+            ],
+            "commonPitfalls": [
+              "Pensar que `b = a` crea una copia independiente de una lista o diccionario (crea un alias).",
+              "Asumir que `double = 2 * difference` se recalcula automáticamente cuando `difference` cambia.",
+              "Escribir `-2 ** 4` esperando `16` en lugar de `(-2) ** 4`."
+            ],
+            "realWorldContrast": "En código de producción, distinguir entre reasignación y mutación in-place evita bugs sutiles al compartir diccionarios de configuración o listas entre funciones. Cuando necesites aislar estado mutable, usa `list(orig)` o `copy.deepcopy(orig)` de forma explícita.",
+            "codeExample": "a = [10, 20]\nb = a\na += [30]        # muta in-place -> b cambia\nprint('tras +=:', a, b)\na = a + [40]     # reasigna nuevo objeto -> b no cambia\nprint('tras + :', a, b)"
+          },
+          "exerciseBank": [
+            {
+              "blockId": "pp-ch2-l1-bank-cloze-1",
+              "type": "SYNTAX_CLOZE",
+              "title": "Aislar una copia y comparar identidad",
+              "prompt": "Completa el código para crear una copia superficial independiente de `base` y comprobar que tienen igual valor pero distinta identidad en memoria:",
+              "codeTemplate": "base = [1, 2, 3]\ncopia = base.___0___()\nprint(copia == base, copia ___1___ base)",
+              "blanks": [
+                { "id": "b0", "options": ["copy", "alias", "clone"], "correctOption": "copy", "hint": "Método estándar de list en Python" },
+                { "id": "b1", "options": ["is not", "==", "is"], "correctOption": "is not", "hint": "Queremos confirmar que son dos objetos distintos en el heap" }
+              ],
+              "explanation": "`base.copy()` crea un nuevo objeto `list` en el heap con los mismos elementos: `copia == base` es `True`, pero `copia is not base` también es `True`.",
+              "competencyIds": ["py.memory.aliasing", "py.memory.equality_vs_identity"],
+              "conceptTags": ["aliasing", "object"]
+            },
+            {
+              "blockId": "pp-ch2-l1-bank-pred-2",
+              "type": "OUTPUT_PREDICTION",
+              "prompt": "Predice la salida exacta considerando asociatividad de `**` y precedencia unaria:",
+              "codeSnippet": "print(-2 ** 3, 2 ** 3 ** 2)",
+              "options": ["-8 512", "-8 64", "8 512", "8 64"],
+              "correctOptionIndex": 0,
+              "expectedReturnType": "str",
+              "explanation": "`-2 ** 3` es `-(2 ** 3) = -8`. Y `2 ** 3 ** 2` se agrupa a la derecha: `2 ** (3 ** 2) = 2 ** 9 = 512`.",
+              "competencyIds": ["py.basics.operator_precedence"],
+              "conceptTags": ["precedence"]
+            },
+            {
+              "blockId": "pp-ch2-l1-bank-bug-1",
+              "type": "BUG_AUTOPSY",
+              "title": "Autopsia: NameError por lectura antes de enlace",
+              "prompt": "Al ejecutar este script aparece un error en la línea 2. Identifica la causa raíz en el modelo de asignación:",
+              "codeSnippet": "total = 10\ntotal = subtotal + 5\nprint(total)",
+              "tracebackText": "NameError: name 'subtotal' is not defined",
+              "culpritLineNumber": 2,
+              "options": [
+                "Python evalúa el lado derecho de `=` primero y el nombre `subtotal` no existe en ningún frame ni built-in.",
+                "No se puede reasignar una variable llamada `total` dos veces.",
+                "El operador `+` no funciona con el entero `5`.",
+                "Falta inicializar `print` antes de usarlo."
+              ],
+              "correctOptionIndex": 0,
+              "explanation": "Toda asignación evalúa primero el lado derecho. Como `subtotal` nunca fue enlazado a un objeto, Python lanza `NameError`.",
+              "competencyIds": ["py.memory.names_and_objects"],
+              "conceptTags": ["variable"]
+            }
+          ],
           "blocks": [
             {
               "blockId": "pp-ch2-l1-prose-1",
@@ -121,8 +218,10 @@
               "blockId": "pp-ch2-l1-predict-1",
               "type": "OUTPUT_PREDICTION",
               "gatesNextBlock": true,
+              "conceptTags": ["variable", "reasignacion"],
+              "competencyIds": ["py.memory.names_and_objects"],
               "prompt": "Predice el valor final de la variable `difference` tras ejecutar estas tres lineas.",
-              "codeSnippet": "difference = 20\ndouble = 2 * difference\ndifference = 5",
+              "codeSnippet": "difference = 20\ndouble = 2 * difference\ndifference = 5\nprint(difference)",
               "options": ["5", "20", "40", "10"],
               "correctOptionIndex": 0,
               "expectedReturnType": "int",
@@ -203,6 +302,7 @@
               "title": "Laboratorio: Leer planets.txt",
               "instructions": "Abre el archivo planets.txt del Virtual FS, lee su contenido y cuenta cuantos planetas contiene. Imprime el conteo.",
               "scaffoldMode": "FREE_SANDBOX",
+              "competencyIds": ["py.io.files_pathlib", "py.io.context_managers"],
               "starterCode": "with open('planets.txt', 'r') as f:\n    content = f.read()\n\nplanets = [line for line in content.splitlines() if line.strip()]\nprint(len(planets))\n",
               "targetFileName": "main.py",
               "unitTestCode": "assert len(planets) == 4, 'Deben contarse 4 planetas'\nassert planets[0] == 'Mercury'\n",
@@ -211,6 +311,8 @@
             {
               "blockId": "pp-ch2-l1-parsons-1",
               "type": "PARSONS_PROBLEM",
+              "gatesNextBlock": true,
+              "competencyIds": ["py.io.files_pathlib", "py.io.context_managers"],
               "prompt": "Reconstruye el codigo que lee planets.txt y cuenta sus lineas no vacias.",
               "blocks": [
                 { "id": "p1", "code": "with open('planets.txt', 'r') as f:", "correctOrder": 0, "correctIndent": 0, "isDistractor": false },
@@ -225,6 +327,9 @@
               "blockId": "pp-ch2-l1-card-1",
               "type": "FLASHCARD",
               "cardId": "pp-card-reassign",
+              "conceptTerm": "variable",
+              "sourceBlockId": "pp-ch2-l1-predict-1",
+              "competencyIds": ["py.memory.names_and_objects"],
               "frontMarkdown": "¿Que ocurre en memoria cuando reasignas una variable en Python?",
               "backMarkdown": "El nombre se reenlaza a un nuevo objeto. El objeto anterior no se modifica; si nadie mas lo referencia, queda huerfano y el recolector de basura puede liberarlo.",
               "codeExample": "x = 20\nx = 5  # x ahora apunta al objeto 5",
@@ -234,7 +339,9 @@
               "blockId": "pp-ch2-l1-card-2",
               "type": "FLASHCARD",
               "cardId": "pp-card-aliasing",
-              "frontMarkdown": "¿Que es el aliasing y por que es peligroso?",
+              "conceptTerm": "aliasing",
+              "competencyIds": ["py.memory.aliasing", "py.memory.mutability"],
+              "frontMarkdown": "¿Que es el aliasing y por que es peligroso con objetos mutables?",
               "backMarkdown": "Ocurre cuando dos nombres referencian el mismo objeto mutable. Mutar a traves de un alias afecta a todos los nombres que apuntan a ese objeto.",
               "codeExample": "a = [1, 2]\nb = a\nb.append(3)  # a tambien es [1, 2, 3]",
               "tags": ["aliasing", "mutabilidad", "listas"]
@@ -243,7 +350,9 @@
               "blockId": "pp-ch2-l1-card-3",
               "type": "FLASHCARD",
               "cardId": "pp-card-precedence",
-              "frontMarkdown": "¿Cual es el resultado de `-2 ** 4` en Python?",
+              "conceptTerm": "precedence",
+              "competencyIds": ["py.basics.operator_precedence"],
+              "frontMarkdown": "¿Cual es el resultado de `-2 ** 4` en Python y por que?",
               "backMarkdown": "Es -16, no 16. La exponenciacion ** tiene mayor precedencia que la negacion unaria, por lo que se evalua 2 ** 4 = 16 y luego se aplica el signo negativo.",
               "codeExample": "-2 ** 4  # -16\n(-2) ** 4  # 16",
               "tags": ["precedencia", "operadores"]
@@ -263,6 +372,85 @@
           "order": 1,
           "title": "Namespaces Aislados en Llamadas",
           "estimatedMinutes": 14,
+          "competencyIds": [
+            "py.memory.call_stack_frames",
+            "py.func.definition_return_vs_print",
+            "py.func.legb_scope"
+          ],
+          "learningObjectives": [
+            "Visualizar cómo cada llamada a función crea y destruye su propio frame/namespace.",
+            "Distinguir con precisión el efecto de `return` frente a `print`.",
+            "Aplicar los 5 pasos de la Function Design Recipe (FDR)."
+          ],
+          "takeaways": [
+            "Dos llamadas consecutivas a la misma función nunca comparten variables locales.",
+            "Toda función que no ejecuta `return` explícito devuelve automáticamente `None`.",
+            "Escribir ejemplos (`>>>`) y contratos de tipo antes del cuerpo reduce drásticamente los bugs."
+          ],
+          "sourcePageRange": "Págs. 40–47",
+          "sourceBookMarkdown": "##### Página 41\n\n### 3.4 Tracing Function Calls in the Memory Model\n\nEvery time Python calls a function, it allocates a brand-new **stack frame** (a local **namespace**) dedicated exclusively to that single call. Parameters are local variables inside that frame.\n\n```python\ndef f(x: int) -> int:\n    x = 2 * x\n    return x\n\nx = 1\nres = f(x + 1) + f(x + 2)\n```\n\n1. Before entering `f`, Python evaluates the argument expression `x + 1` in the caller's frame (`<module>`), producing `2`.\n2. A new frame for `f` is pushed onto the call stack with its own local `x` bound to `2`.\n3. Rebinding `x = 2 * x` inside `f` updates **only** `f`'s local namespace. The module's `x` remains `1`.\n4. When `return x` executes, `4` is returned to the caller and `f`'s frame is destroyed.\n\n---\n\n##### Página 45\n\n### 3.6 Designing New Functions: A Recipe (FDR)\n\n1. **Examples**: Write concrete calls and expected return values (`>>> days_difference(1, 10)` -> `9`).\n2. **Type Contract & Header**: Name parameters meaningfully and declare type annotations.\n3. **Description**: Summarize what the function returns (not how it computes it) in the docstring.\n4. **Body**: Implement the computation cleanly.\n5. **Test**: Run boundary and normal test cases.",
+          "deepDive": {
+            "internalMechanics": "Cada invocación crea un objeto PyFrameObject en la pila de llamadas (call stack) con su tabla rápida de locales (f_localsplus). Cuando una función busca un nombre, Python sigue la regla LEGB: Local → Enclosing → Global → Built-in. Si dentro de una función existe cualquier asignación a `x`, el compilador de bytecode marca `x` como local para todo el cuerpo de la función.",
+            "edgeCases": [
+              "Leer una variable global `x` y luego asignar `x = x + 1` en la misma función provoca `UnboundLocalError`, porque Python decide en tiempo de compilación que `x` es local.",
+              "Pasar un objeto mutable (como `list`) como argumento NO lo copia: el parámetro local recibe una referencia al mismo objeto del caller.",
+              "Omitir `return` hace que la función devuelva `None`, lo que suele explotar más adelante con `TypeError: unsupported operand type(s) for +: 'NoneType' and 'int'`."
+            ],
+            "commonPitfalls": [
+              "Usar `print(resultado)` en lugar de `return resultado` y luego intentar operar con el valor devuelto.",
+              "Creer que nombrar el parámetro igual que una variable global (`x`) hace que ambos compartan el mismo espacio de nombres."
+            ],
+            "realWorldContrast": "Las funciones puras (sin mutar argumentos externos ni depender de estado global mutable) son triviales de testear con `pytest` y seguras en pipelines concurrentes.",
+            "codeExample": "def solo_imprime(n):\n    print(n * 2)\n\ndef retorna(n):\n    return n * 2\n\nprint('solo_imprime ->', solo_imprime(3))\nprint('retorna      ->', retorna(3) + 1)"
+          },
+          "exerciseBank": [
+            {
+              "blockId": "pp-ch3-l1-bank-pred-1",
+              "type": "OUTPUT_PREDICTION",
+              "prompt": "¿Qué imprime exactamente este código que mezcla `print` y `return`?",
+              "codeSnippet": "def doble(n):\n    print(n * 2)\n\nres = doble(4)\nprint(res)",
+              "options": ["8\nNone", "8\n8", "None\n8", "TypeError"],
+              "correctOptionIndex": 0,
+              "expectedReturnType": "NoneType",
+              "explanation": "`doble(4)` imprime `8` por pantalla pero no tiene `return`, así que devuelve `None`. Luego `print(res)` imprime `None`.",
+              "competencyIds": ["py.func.definition_return_vs_print"],
+              "misconceptionId": "PRINT_VS_RETURN",
+              "conceptTags": ["return", "print", "namespace"]
+            },
+            {
+              "blockId": "pp-ch3-l1-bank-bug-1",
+              "type": "BUG_AUTOPSY",
+              "title": "Autopsia: UnboundLocalError por LEGB",
+              "prompt": "Esta función intenta incrementar un contador global pero falla al ejecutarse. Identifica la causa raíz:",
+              "codeSnippet": "count = 0\ndef inc():\n    count = count + 1\n    return count\nprint(inc())",
+              "tracebackText": "UnboundLocalError: cannot access local variable 'count' where it is not associated with a value",
+              "culpritLineNumber": 3,
+              "options": [
+                "Al haber una asignación `count = ...` dentro de `inc`, Python compila `count` como variable local y falla al leerla antes de asignarla.",
+                "Python no permite funciones sin parámetros.",
+                "El entero `0` es inmutable y no puede sumarse con `1`.",
+                "`return count` debe ir antes de la asignación."
+              ],
+              "correctOptionIndex": 0,
+              "explanation": "Según la regla LEGB, cualquier asignación en el cuerpo de una función convierte ese nombre en local. La solución limpia es pasar `count` como parámetro y devolver el nuevo valor.",
+              "competencyIds": ["py.func.legb_scope"],
+              "misconceptionId": "SCOPE_LEGB_SHADOWING",
+              "conceptTags": ["namespace", "scope"]
+            },
+            {
+              "blockId": "pp-ch3-l1-bank-parsons-1",
+              "type": "PARSONS_PROBLEM",
+              "prompt": "Ordena los bloques para implementar una función pura que devuelva la diferencia absoluta sin efectos secundarios:",
+              "blocks": [
+                { "id": "f1", "code": "def days_difference(day1: int, day2: int) -> int:", "correctOrder": 0, "correctIndent": 0, "isDistractor": false },
+                { "id": "f2", "code": "diff = abs(day2 - day1)", "correctOrder": 1, "correctIndent": 1, "isDistractor": false },
+                { "id": "f3", "code": "return diff", "correctOrder": 2, "correctIndent": 1, "isDistractor": false },
+                { "id": "f4", "code": "print(diff)", "correctOrder": -1, "correctIndent": 1, "isDistractor": true }
+              ],
+              "competencyIds": ["py.func.definition_return_vs_print"],
+              "conceptTags": ["fdr", "return"]
+            }
+          ],
           "blocks": [
             {
               "blockId": "pp-ch3-l1-prose-1",
@@ -362,9 +550,11 @@
               "title": "FDR: days_difference(day1, day2)",
               "instructions": "Disena la funcion days_difference(day1, day2) que devuelve la diferencia absoluta en dias entre dos dias del mismo ano. Sigue los 5 pasos de la Function Design Recipe.",
               "scaffoldMode": "FDR_5_STEPS",
+              "competencyIds": ["py.func.definition_return_vs_print", "py.data.doctest_pytest"],
               "starterCode": "def days_difference(day1: int, day2: int) -> int:\n    \"\"\"Return the number of days between day1 and day2.\n\n    >>> days_difference(1, 10)\n    9\n    >>> days_difference(10, 1)\n    9\n    \"\"\"\n    return abs(day2 - day1)\n",
               "targetFileName": "main.py",
               "unitTestCode": "assert days_difference(1, 10) == 9\nassert days_difference(10, 1) == 9\nassert days_difference(5, 5) == 0\n",
+              "hiddenTestCode": "assert days_difference(1, 365) == 364\n",
               "fdrGuide": {
                 "examples": ">>> days_difference(1, 10)\n9\n>>> days_difference(10, 1)\n9",
                 "header": "def days_difference(day1: int, day2: int) -> int:",
@@ -378,10 +568,24 @@
               "blockId": "pp-ch3-l1-card-1",
               "type": "FLASHCARD",
               "cardId": "pp-card-fdr",
+              "conceptTerm": "namespace",
+              "competencyIds": ["py.func.definition_return_vs_print", "py.data.doctest_pytest"],
               "frontMarkdown": "¿Cuales son los 5 pasos de la Function Design Recipe?",
               "backMarkdown": "1) Ejemplos (>>>), 2) Header con type hints, 3) Descripcion/docstring, 4) Cuerpo de la funcion, 5) Pruebas con asserts o doctest.",
               "codeExample": "def f(x: int) -> int:\n    \"\"\"Docstring.\"\"\"\n    return x",
               "tags": ["fdr", "funciones", "diseno"]
+            },
+            {
+              "blockId": "pp-ch3-l1-card-2",
+              "type": "FLASHCARD",
+              "cardId": "pp-card-return-vs-print",
+              "conceptTerm": "return vs print",
+              "sourceBlockId": "pp-ch3-l1-bank-pred-1",
+              "competencyIds": ["py.func.definition_return_vs_print"],
+              "frontMarkdown": "¿Por qué `print(x)` dentro de una función NO sustituye a `return x`?",
+              "backMarkdown": "`print()` solo escribe texto en la salida estándar y devuelve `None`. `return` entrega el objeto real al llamador para reutilizarlo en expresiones y tests.",
+              "codeExample": "def f(x):\n    return x * 2  # reutilizable",
+              "tags": ["funciones", "return", "print"]
             }
           ]
         }

@@ -4,6 +4,10 @@ import { usePlatformStore, selectActiveCartridge } from './store/usePlatformStor
 import { ThemeInjector } from './ui/theme/ThemeInjector';
 import { AppShell } from './ui/shell/AppShell';
 import { BookLibraryHub } from './ui/library/BookLibraryHub';
+import { GlobalSrsHub } from './ui/srs/GlobalSrsHub';
+import { GlobalDictionaryView } from './ui/dictionary/GlobalDictionaryView';
+import { ConceptDetailModal } from './ui/dictionary/ConceptDetailModal';
+import { GlobalPythonRoadmapView } from './ui/roadmap/GlobalPythonRoadmapView';
 import { DesktopStudioShell } from './ui/studio/DesktopStudioShell';
 import { MobileCompanionShell } from './ui/mobile/MobileCompanionShell';
 import { ToastStack } from './ui/gamification/GamificationHud';
@@ -16,11 +20,14 @@ export default function App() {
   const registerCartridge = usePlatformStore((s) => s.registerCartridge);
   const isHydrated = usePlatformStore((s) => s.isHydrated);
   const activeBookId = usePlatformStore((s) => s.activeBookId);
+  const globalRoute = usePlatformStore((s) => s.globalRoute);
   const viewMode = usePlatformStore((s) => s.viewMode);
   const setViewMode = usePlatformStore((s) => s.setViewMode);
   const cartridge = usePlatformStore(selectActiveCartridge);
   const activeGlossaryTerm = usePlatformStore((s) => s.activeGlossaryTerm);
   const setActiveGlossaryTerm = usePlatformStore((s) => s.setActiveGlossaryTerm);
+  const activeConceptModal = usePlatformStore((s) => s.activeConceptModal);
+  const setActiveConceptModal = usePlatformStore((s) => s.setActiveConceptModal);
   const [bootError, setBootError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -110,14 +117,30 @@ export default function App() {
       <ThemeInjector theme={cartridge?.themeDNA ?? null} />
 
       <AppShell>
-        {!activeBookId && <BookLibraryHub />}
+        {!activeBookId && globalRoute === 'LIBRARY' && <BookLibraryHub />}
+        {!activeBookId && globalRoute === 'GLOBAL_SRS' && <GlobalSrsHub />}
+        {!activeBookId && globalRoute === 'DICTIONARY' && <GlobalDictionaryView />}
+        {!activeBookId && globalRoute === 'PYTHON_ROADMAP' && <GlobalPythonRoadmapView />}
         {activeBookId && viewMode === 'DESKTOP_STUDIO' && <DesktopStudioShell />}
         {activeBookId && viewMode === 'MOBILE_COMPANION' && <MobileCompanionShell />}
       </AppShell>
 
-      {activeGlossaryTerm && (
-        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center">
-          <div className="glass-strong w-full max-w-sm rounded-2xl border border-subtle p-4">
+      {activeConceptModal && (
+        <ConceptDetailModal
+          concept={activeConceptModal}
+          onClose={() => setActiveConceptModal(null)}
+        />
+      )}
+
+      {!activeConceptModal && activeGlossaryTerm && (
+        <div
+          className="fixed inset-0 z-[70] flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center"
+          onClick={() => setActiveGlossaryTerm(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="glass-strong w-full max-w-sm rounded-2xl border border-subtle p-4"
+          >
             <div className="mb-2 flex items-center justify-between">
               <h4 className="text-sm font-semibold text-accent">{activeGlossaryTerm.term}</h4>
               <button

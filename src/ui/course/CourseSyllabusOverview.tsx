@@ -29,6 +29,9 @@ export function CourseSyllabusOverview({
   const pcLabQueue = usePlatformStore((s) => s.pcLabQueue);
   const selectLesson = usePlatformStore((s) => s.selectLesson);
   const advanceUnlockedBlock = usePlatformStore((s) => s.advanceUnlockedBlock);
+  const markChapterAsStudied = usePlatformStore((s) => s.markChapterAsStudied);
+  const markLessonAsStudied = usePlatformStore((s) => s.markLessonAsStudied);
+  const pushToast = usePlatformStore((s) => s.pushToast);
 
   if (!cartridge) return null;
 
@@ -158,14 +161,15 @@ export function CourseSyllabusOverview({
             const chapterCompleted = chapter.microLessons.filter(
               (ml) => lessonProgressMap[`${cartridge.bookId}::${ml.lessonId}`]?.isCompleted
             ).length;
+            const allChapterDone = chapterCompleted === chapter.microLessons.length;
 
             return (
               <div
                 key={chapter.chapterId}
                 className="overflow-hidden rounded-2xl border border-subtle bg-surface"
               >
-                <div className="flex items-center justify-between border-b border-subtle bg-elevated/40 px-4 py-3">
-                  <div>
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-subtle bg-elevated/40 px-4 py-3">
+                  <div className="min-w-0 flex-1">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-accent">
                       Módulo {chapter.number}
                     </p>
@@ -174,9 +178,25 @@ export function CourseSyllabusOverview({
                       <p className="mt-0.5 text-[11px] text-muted">{chapter.summary}</p>
                     )}
                   </div>
-                  <span className="rounded-full border border-subtle bg-canvas px-2.5 py-1 text-[11px] font-medium text-secondary">
-                    {chapterCompleted}/{chapter.microLessons.length}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void markChapterAsStudied(cartridge.bookId, chapter.chapterId)}
+                      className={cn(
+                        'flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[10px] font-semibold transition-colors',
+                        allChapterDone
+                          ? 'border-success/40 bg-success/10 text-success'
+                          : 'border-accent/40 bg-accent/10 text-accent hover:bg-accent/20'
+                      )}
+                      title="Marca el módulo como estudiado y enrola sus tarjetas en el Hub Global FSRS"
+                    >
+                      <CheckCircle2 size={11} />
+                      {allChapterDone ? 'Enrolado en FSRS' : 'Marcar estudiado (SRS)'}
+                    </button>
+                    <span className="rounded-full border border-subtle bg-canvas px-2.5 py-1 text-[11px] font-medium text-secondary">
+                      {chapterCompleted}/{chapter.microLessons.length}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="divide-y divide-subtle/60">
@@ -185,18 +205,21 @@ export function CourseSyllabusOverview({
                     const tier = computeLessonMasteryTier(prog, ml.blocks.length);
                     const stages = groupBlocksIntoStages(ml);
                     const isCurrent = ml.lessonId === activeLessonId;
+                    const isDone = Boolean(prog?.isCompleted);
 
                     return (
-                      <button
+                      <div
                         key={ml.lessonId}
-                        type="button"
-                        onClick={() => void handleOpenLesson(chapter.chapterId, ml.lessonId)}
                         className={cn(
-                          'flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-elevated/50',
+                          'flex w-full items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-elevated/50',
                           isCurrent && 'bg-accent/5'
                         )}
                       >
-                        <div className="flex min-w-0 items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => void handleOpenLesson(chapter.chapterId, ml.lessonId)}
+                          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                        >
                           <div
                             className={cn(
                               'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border text-xs font-semibold',
@@ -231,12 +254,39 @@ export function CourseSyllabusOverview({
                               </span>
                             </div>
                           </div>
-                        </div>
+                        </button>
 
-                        <span className="flex shrink-0 items-center gap-1 rounded-lg border border-subtle px-2.5 py-1 text-[11px] font-medium text-primary">
-                          <BookOpen size={11} /> {tier === 'LOCKED' ? 'Iniciar' : 'Abrir'}
-                        </span>
-                      </button>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          {!isDone && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const count = await markLessonAsStudied(
+                                  cartridge.bookId,
+                                  chapter.chapterId,
+                                  ml.lessonId
+                                );
+                                pushToast({
+                                  title: 'Lección marcada como estudiada',
+                                  description: `${count} tarjetas enroladas en FSRS.`,
+                                  iconKey: 'sparkles',
+                                });
+                              }}
+                              className="hidden rounded-lg border border-subtle px-2 py-1 text-[10px] text-muted hover:border-accent hover:text-accent sm:inline-flex"
+                              title="Marcar lección como estudiada para enrolar sus flashcards en FSRS"
+                            >
+                              + SRS
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => void handleOpenLesson(chapter.chapterId, ml.lessonId)}
+                            className="flex shrink-0 items-center gap-1 rounded-lg border border-subtle px-2.5 py-1 text-[11px] font-medium text-primary hover:border-accent/60"
+                          >
+                            <BookOpen size={11} /> {tier === 'LOCKED' ? 'Iniciar' : 'Abrir'}
+                          </button>
+                        </div>
+                      </div>
                     );
                   })}
                 </div>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   Search,
@@ -15,8 +15,16 @@ import {
   Download,
   Play,
   X,
+  Library,
+  Brain,
+  BookMarked,
+  Compass,
 } from 'lucide-react';
-import { usePlatformStore, selectActiveCartridge } from '../../store/usePlatformStore';
+import {
+  usePlatformStore,
+  selectActiveCartridge,
+  type GlobalRoute,
+} from '../../store/usePlatformStore';
 import { CommandPalette } from './CommandPalette';
 import { CartridgeImporterModal } from '../library/CartridgeImporterModal';
 import { SettingsModal } from '../settings/SettingsModal';
@@ -33,12 +41,27 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
+const GLOBAL_NAV_ITEMS: Array<{
+  id: GlobalRoute;
+  label: string;
+  shortLabel: string;
+  icon: typeof Library;
+}> = [
+  { id: 'LIBRARY', label: 'Biblioteca', shortLabel: 'Libros', icon: Library },
+  { id: 'GLOBAL_SRS', label: 'Repaso FSRS', shortLabel: 'Repaso', icon: Brain },
+  { id: 'DICTIONARY', label: 'Diccionario', shortLabel: 'Glosario', icon: BookMarked },
+  { id: 'PYTHON_ROADMAP', label: 'Ruta Python', shortLabel: 'Ruta', icon: Compass },
+];
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const setCommandPaletteOpen = usePlatformStore((s) => s.setCommandPaletteOpen);
   const viewMode = usePlatformStore((s) => s.viewMode);
   const setViewMode = usePlatformStore((s) => s.setViewMode);
   const closeBook = usePlatformStore((s) => s.closeBook);
   const activeBookId = usePlatformStore((s) => s.activeBookId);
+  const globalRoute = usePlatformStore((s) => s.globalRoute);
+  const setGlobalRoute = usePlatformStore((s) => s.setGlobalRoute);
+  const srsStates = usePlatformStore((s) => s.srsStates);
   const cartridge = usePlatformStore(selectActiveCartridge);
   const userStats = usePlatformStore((s) => s.userStats);
   const settings = usePlatformStore((s) => s.settings);
@@ -75,6 +98,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  const dueSrsCount = useMemo(() => {
+    const now = Date.now();
+    let count = 0;
+    for (const st of Object.values(srsStates)) {
+      const enrolled = Boolean(
+        st.enrolled || st.failedInPcLab || st.repetitions > 0 || (st.reps ?? 0) > 0
+      );
+      if (enrolled && (st.failedInPcLab || st.nextReviewTimestamp <= now)) {
+        count += 1;
+      }
+    }
+    return count;
+  }, [srsStates]);
+
   const accuracy =
     userStats.totalAttempts > 0
       ? Math.round((userStats.totalFirstTryHits / userStats.totalAttempts) * 100)
@@ -85,7 +122,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <header className="glass z-40 flex items-center gap-2 border-b border-subtle px-3 py-2 sm:gap-3 sm:px-4 sm:py-2.5">
         <button
           type="button"
-          onClick={closeBook}
+          onClick={() => closeBook('LIBRARY')}
           className="flex shrink-0 items-center gap-2 rounded-lg px-1.5 py-1 transition-colors hover:bg-elevated/60"
         >
           <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-accent to-accent-secondary text-sm">
@@ -96,10 +133,40 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </span>
         </button>
 
+        {/* Navegación Global de Primer Nivel (Escritorio) */}
+        <nav className="hidden items-center gap-1 border-l border-subtle pl-3 lg:flex">
+          {GLOBAL_NAV_ITEMS.map((item) => {
+            const isActive = !activeBookId && globalRoute === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setGlobalRoute(item.id)}
+                className={cn(
+                  'relative flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors',
+                  isActive
+                    ? 'bg-accent/15 font-semibold text-accent'
+                    : 'text-muted hover:bg-elevated/60 hover:text-primary'
+                )}
+              >
+                <item.icon size={13} />
+                <span>{item.label}</span>
+                {item.id === 'GLOBAL_SRS' && dueSrsCount > 0 && (
+                  <span className="rounded-full bg-secondary px-1.5 py-0.2 text-[9px] font-bold text-canvas">
+                    {dueSrsCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+
         {cartridge && (
-          <div className="hidden min-w-0 items-center gap-2 border-l border-subtle pl-3 md:flex">
+          <div className="hidden min-w-0 items-center gap-2 border-l border-subtle pl-3 xl:flex">
             <span className="text-sm">{cartridge.metadata.coverAccentIcon}</span>
-            <span className="truncate text-xs font-medium text-muted">{cartridge.metadata.title}</span>
+            <span className="max-w-[160px] truncate text-xs font-medium text-muted">
+              {cartridge.metadata.title}
+            </span>
           </div>
         )}
 
@@ -110,7 +177,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           className="ml-auto flex items-center gap-2 rounded-lg border border-subtle bg-surface/60 p-2 text-xs text-muted transition-colors hover:border-accent/50 hover:text-primary sm:px-3 sm:py-1.5"
         >
           <Search size={14} />
-          <span className="hidden sm:block">Buscar o saltar a...</span>
+          <span className="hidden sm:block">Buscar...</span>
           <kbd className="hidden items-center gap-0.5 rounded border border-subtle px-1.5 py-0.5 text-[10px] sm:flex">
             <Command size={9} /> K
           </kbd>
@@ -120,10 +187,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <span className="flex items-center gap-1 rounded-full bg-elevated px-2 py-1 text-[11px] font-medium text-secondary sm:px-2.5">
             <Flame size={12} /> {userStats.currentStreakDays}d
           </span>
-          <span className="hidden items-center gap-1 rounded-full bg-elevated px-2.5 py-1 text-[11px] font-medium text-accent sm:flex">
+          <span className="hidden items-center gap-1 rounded-full bg-elevated px-2.5 py-1 text-[11px] font-medium text-accent md:flex">
             <Target size={12} /> {accuracy}%
           </span>
-          <span className="hidden items-center gap-1 rounded-full bg-elevated px-2.5 py-1 text-[11px] font-medium text-success sm:flex">
+          <span className="hidden items-center gap-1 rounded-full bg-elevated px-2.5 py-1 text-[11px] font-medium text-success xl:flex">
             <Trophy size={12} /> {userStats.astMasteryCount}
           </span>
         </div>
@@ -184,20 +251,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <button
           type="button"
           onClick={() => setCompilerOpen(true)}
-          className="hidden items-center gap-1.5 rounded-lg border border-subtle px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:border-accent/50 sm:flex"
+          className="hidden items-center gap-1.5 rounded-lg border border-subtle px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:border-accent/50 sm:flex"
           title="Compilar un libro"
         >
           <Wand2 size={13} />
-          <span className="hidden lg:block">Compilar</span>
+          <span className="hidden xl:block">Compilar</span>
         </button>
 
         <button
           type="button"
           onClick={() => setShowImporter(true)}
-          className="hidden items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-canvas transition-transform hover:scale-[1.03] sm:flex"
+          className="hidden items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-semibold text-canvas transition-transform hover:scale-[1.03] sm:flex"
         >
           <Upload size={13} />
-          <span className="hidden sm:block">Importar</span>
+          <span className="hidden xl:block">Importar</span>
         </button>
 
         <button
@@ -249,14 +316,45 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       )}
 
       <motion.main
-        key={activeBookId ?? 'library'}
+        key={activeBookId ?? globalRoute}
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.28 }}
+        transition={{ duration: 0.25 }}
         className="min-h-0 flex-1 overflow-hidden"
       >
         {children}
       </motion.main>
+
+      {/* Navegación Global Inferior en Móvil / Tablet cuando no hay libro abierto */}
+      {!activeBookId && (
+        <nav
+          className="glass flex items-center justify-around border-t border-subtle pt-1.5 lg:hidden"
+          style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
+        >
+          {GLOBAL_NAV_ITEMS.map((item) => {
+            const isActive = globalRoute === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setGlobalRoute(item.id)}
+                className={cn(
+                  'relative flex min-h-[44px] min-w-[68px] flex-col items-center justify-center gap-0.5 rounded-xl px-2.5 py-1 text-[10px] font-medium transition-colors',
+                  isActive ? 'bg-accent/15 font-semibold text-accent' : 'text-muted'
+                )}
+              >
+                <item.icon size={17} />
+                <span>{item.shortLabel}</span>
+                {item.id === 'GLOBAL_SRS' && dueSrsCount > 0 && (
+                  <span className="absolute right-2 top-1 rounded-full bg-secondary px-1 text-[8px] font-bold text-canvas">
+                    {dueSrsCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+      )}
 
       <CommandPalette />
       {showImporter && <CartridgeImporterModal onClose={() => setShowImporter(false)} />}

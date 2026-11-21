@@ -3,6 +3,8 @@ import { zlibSync, unzlibSync, strToU8, strFromU8 } from 'fflate';
 import type { PcLabQueueItem } from '../store/usePlatformStore';
 import {
   livingBooksDb,
+  type GlobalCompetencyMasteryRecord,
+  type LearningTelemetryRecord,
   type LessonProgressRecord,
   type SavedUserCodeRecord,
   type SrsCardStateRecord,
@@ -11,7 +13,7 @@ import {
 } from './dexieDb';
 
 export interface SyncDeltaSnapshot {
-  snapshotVersion: '2.0';
+  snapshotVersion: '2.0' | '2.1';
   exportedAt: number;
   deviceTag: string;
   lessonProgress: LessonProgressRecord[];
@@ -20,6 +22,8 @@ export interface SyncDeltaSnapshot {
   unlockedAchievements: UnlockedAchievementRecord[];
   userStats: UserStatsRecord | null;
   pcLabQueue?: PcLabQueueItem[];
+  globalCompetencyMastery?: GlobalCompetencyMasteryRecord[];
+  learningTelemetry?: LearningTelemetryRecord[];
 }
 
 export interface SupabaseSyncConfig {
@@ -84,17 +88,30 @@ export function saveSupabaseConfig(config: SupabaseSyncConfig | null): void {
 }
 
 export async function exportSyncSnapshot(deviceTag = 'living-book-client'): Promise<string> {
-  const [lessonProgress, srsCardsState, savedUserCode, unlockedAchievements, userStats] =
-    await Promise.all([
-      livingBooksDb.lessonProgress.toArray(),
-      livingBooksDb.srsCardsState.toArray(),
-      livingBooksDb.savedUserCode.toArray(),
-      livingBooksDb.unlockedAchievements.toArray(),
-      livingBooksDb.userStats.get('global'),
-    ]);
+  const [
+    lessonProgress,
+    srsCardsState,
+    savedUserCode,
+    unlockedAchievements,
+    userStats,
+    globalCompetencyMastery,
+    telemetryAll,
+  ] = await Promise.all([
+    livingBooksDb.lessonProgress.toArray(),
+    livingBooksDb.srsCardsState.toArray(),
+    livingBooksDb.savedUserCode.toArray(),
+    livingBooksDb.unlockedAchievements.toArray(),
+    livingBooksDb.userStats.get('global'),
+    livingBooksDb.globalCompetencyMastery
+      ? livingBooksDb.globalCompetencyMastery.toArray().catch(() => [])
+      : Promise.resolve([]),
+    livingBooksDb.learningTelemetry
+      ? livingBooksDb.learningTelemetry.toArray().catch(() => [])
+      : Promise.resolve([]),
+  ]);
 
   const payload: SyncDeltaSnapshot = {
-    snapshotVersion: '2.0',
+    snapshotVersion: '2.1',
     exportedAt: Date.now(),
     deviceTag,
     lessonProgress,
@@ -103,6 +120,8 @@ export async function exportSyncSnapshot(deviceTag = 'living-book-client'): Prom
     unlockedAchievements,
     userStats: userStats ?? null,
     pcLabQueue: readPcLabQueue(),
+    globalCompetencyMastery,
+    learningTelemetry: telemetryAll.slice(-500),
   };
 
   return JSON.stringify(payload, null, 2);
@@ -136,8 +155,8 @@ export async function importSyncSnapshot(
   }
 
   const snapshot = JSON.parse(jsonText) as SyncDeltaSnapshot;
-  if (snapshot.snapshotVersion !== '2.0') {
-    throw new Error('Incompatible sync snapshot version. Expected v2.0.');
+  if (snapshot.snapshotVersion !== '2.0' && snapshot.snapshotVersion !== '2.1') {
+    throw new Error('Incompatible sync snapshot version. Expected v2.0 or v2.1.');
   }
   mergePcLabQueue(snapshot.pcLabQueue);
 
@@ -151,6 +170,8 @@ export async function importSyncSnapshot(
       livingBooksDb.savedUserCode,
       livingBooksDb.unlockedAchievements,
       livingBooksDb.userStats,
+      livingBooksDb.globalCompetencyMastery,
+      livingBooksDb.learningTelemetry,
     ],
     async () => {
       for (const incoming of snapshot.lessonProgress ?? []) {
@@ -191,6 +212,30 @@ export async function importSyncSnapshot(
         if (!current || incoming.unlockedAt < current.unlockedAt) {
           await livingBooksDb.unlockedAchievements.put(incoming);
           mergedRecords += 1;
+        }
+      }
+
+      for (const incoming of snapshot.globalCompetencyMastery ?? []) {
+        const current = await livingBooksDb.globalCompetencyMastery.get(incoming.competencyId);
+        if (!current || incoming.updatedAt >= current.updatedAt) {
+          await livingBooksDb.globalCompetencyMastery.put(incoming);
+          mergedRecords += 1;
+        }
+      }
+
+      if (snapshot.learningTelemetry && snapshot.learningTelemetry.length > 0) {
+        const existingTelemetry = await livingBooksDb.learningTelemetry.toArray();
+        const existingKeys = new Set(
+          existingTelemetry.map((e) => `${e.bookId}::${e.eventType}::${e.blockId ?? ''}::${e.createdAt}`)
+        );
+        for (const incoming of snapshot.learningTelemetry) {
+          const key = `${incoming.bookId}::${incoming.eventType}::${incoming.blockId ?? ''}::${incoming.createdAt}`;
+          if (!existingKeys.has(key)) {
+            const { id: _ignored, ...rest } = incoming;
+            await livingBooksDb.learningTelemetry.add(rest);
+            existingKeys.add(key);
+            mergedRecords += 1;
+          }
         }
       }
 

@@ -30,11 +30,13 @@ export function CommandPalette() {
   const open = usePlatformStore((s) => s.commandPaletteOpen);
   const setOpen = usePlatformStore((s) => s.setCommandPaletteOpen);
   const cartridges = usePlatformStore((s) => s.cartridges);
+  const globalConcepts = usePlatformStore((s) => s.globalConcepts);
   const openBook = usePlatformStore((s) => s.openBook);
   const closeBook = usePlatformStore((s) => s.closeBook);
+  const setGlobalRoute = usePlatformStore((s) => s.setGlobalRoute);
+  const setActiveConceptModal = usePlatformStore((s) => s.setActiveConceptModal);
   const selectLesson = usePlatformStore((s) => s.selectLesson);
   const setViewMode = usePlatformStore((s) => s.setViewMode);
-  const setMobileTab = usePlatformStore((s) => s.setMobileTab);
   const setStudioTab = usePlatformStore((s) => s.setStudioTab);
   const setCompilerOpen = usePlatformStore((s) => s.setCompilerOpen);
   const setSettingsOpen = usePlatformStore((s) => s.setSettingsOpen);
@@ -92,6 +94,17 @@ export function CommandPalette() {
       }
     }
 
+    for (const concept of globalConcepts) {
+      list.push({
+        id: `concept-${concept.conceptKey}`,
+        label: concept.term,
+        hint: `${concept.definition.slice(0, 72)}...`,
+        icon: Search,
+        group: 'Diccionario',
+        run: () => setActiveConceptModal(concept),
+      });
+    }
+
     list.push(
       {
         id: 'action-library',
@@ -99,7 +112,31 @@ export function CommandPalette() {
         hint: 'Ver todos los libros',
         icon: Layers,
         group: 'Acciones',
-        run: () => closeBook(),
+        run: () => setGlobalRoute('LIBRARY'),
+      },
+      {
+        id: 'action-srs',
+        label: 'Hub Global de Repaso FSRS',
+        hint: 'Repaso espaciado tipo Anki entre todos tus libros',
+        icon: Trophy,
+        group: 'Acciones',
+        run: () => setGlobalRoute('GLOBAL_SRS'),
+      },
+      {
+        id: 'action-dictionary',
+        label: 'Diccionario Técnico Transversal',
+        hint: 'Todos los conceptos de Python con evaluación directa',
+        icon: BookOpen,
+        group: 'Acciones',
+        run: () => setGlobalRoute('DICTIONARY'),
+      },
+      {
+        id: 'action-roadmap',
+        label: 'Ruta Global de Dominio Python',
+        hint: '9 dominios y 54 competencias demostradas',
+        icon: Map,
+        group: 'Acciones',
+        run: () => setGlobalRoute('PYTHON_ROADMAP'),
       },
       {
         id: 'action-desktop',
@@ -118,35 +155,13 @@ export function CommandPalette() {
         run: () => setViewMode('MOBILE_COMPANION'),
       },
       {
-        id: 'action-srs',
-        label: 'Repaso SM-2',
-        hint: 'Arena de tarjetas',
-        icon: Trophy,
-        group: 'Acciones',
-        run: () => {
-          setViewMode('MOBILE_COMPANION');
-          setMobileTab('SRS');
-        },
-      },
-      {
-        id: 'action-map',
-        label: 'Mapa de Dominio',
-        hint: 'Progreso por leccion',
-        icon: Map,
-        group: 'Acciones',
-        run: () => {
-          setViewMode('MOBILE_COMPANION');
-          setMobileTab('MAP');
-        },
-      },
-      {
         id: 'action-import',
         label: 'Importar Cartucho JSON',
         hint: 'Instalar un libro compilado',
         icon: Upload,
         group: 'Acciones',
         run: () => {
-          closeBook();
+          closeBook('LIBRARY');
           window.dispatchEvent(new CustomEvent('living-books:open-importer'));
         },
       },
@@ -177,7 +192,19 @@ export function CommandPalette() {
     );
 
     return list;
-  }, [cartridges, openBook, closeBook, selectLesson, setViewMode, setMobileTab, setStudioTab, setCompilerOpen, setSettingsOpen]);
+  }, [
+    cartridges,
+    globalConcepts,
+    openBook,
+    closeBook,
+    setGlobalRoute,
+    setActiveConceptModal,
+    selectLesson,
+    setViewMode,
+    setStudioTab,
+    setCompilerOpen,
+    setSettingsOpen,
+  ]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

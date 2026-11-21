@@ -25,13 +25,25 @@ Tu mision es lograr el EQUILIBRIO PERFECTO entre el libro y el aprendizaje activ
 ${langDirective}
 ${depthDirective}
 
-REGLAS ESTRICTAS DE FORMATO:
+REGLAS ESTRICTAS DE FORMATO (COMPILADOR v3):
 1. Emite EXCLUSIVAMENTE un objeto JSON valido (sin markdown ni texto fuera del JSON).
 2. Usa SIEMPRE los nombres de campo exactos definidos abajo.
-3. Incluye al menos 2 bloques "PROSE" (salvo modo agil) con explicacion clara, etiquetas "subgoals" (2-4 subobjetivos del ejemplo), ejemplos en \`\`\`python ... \`\`\`, callouts estrategicos (TIP, WARNING, ERROR_TRAP, BOOK_NOTE) y terminos en [[termino]].
-4. Incluye de 3 a 5 ejercicios interactivos variados (OUTPUT_PREDICTION, INTERACTIVE_VISUALIZER, PARSONS_PROBLEM con al menos 1 isDistractor:true, BUG_AUTOPSY cuando haya errores/trampas, SYNTAX_CLOZE, AST_CHALLENGE o CODE_LAB con hiddenTestCode y progressiveHints, FLASHCARD con sourceBlockId apuntando a un reto previo) derivados directamente de "cleanText".
-5. Usa "linkedFlashcardId" en los retos para enlazarlos a la FLASHCARD de la leccion, "conceptTags" (1-2 etiquetas) y "gatesNextBlock": true en OUTPUT_PREDICTION y PARSONS_PROBLEM.
-6. Usa "sectionTitle" recibido como titulo real de la leccion (o traduccion fiel al idioma elegido).
+3. Incluye al menos 2 bloques "PROSE" (salvo modo agil) con explicacion clara, etiquetas "subgoals" (2-4 subobjetivos), ejemplos en \`\`\`python ... \`\`\`, callouts estrategicos (TIP, WARNING, ERROR_TRAP, BOOK_NOTE) y terminos en [[termino]].
+4. DIVULGACION PROGRESIVA OBLIGATORIA ("deepDive"): Incluye el objeto "deepDive" a nivel raiz con:
+   - "internalMechanics": como funciona internamente en Python/CPython (memoria, modelo de datos o complejidad).
+   - "edgeCases": 2-3 casos borde reales.
+   - "commonPitfalls": 2-3 errores tipicos y trampas.
+   - "realWorldContrast": contraste con practicas de produccion reales.
+   - "codeExample": snippet minimo que demuestra el matiz interno.
+5. BANCO DE EJERCICIOS ADAPTATIVO Y DIVERSO (NO relleno repetitivo):
+   - En "blocks" incluye el flujo principal (3-5 bloques interactivos variados).
+   - En "exerciseBank" incluye ejercicios adicionales optimizados para movil offline segun complejidad: 1-2 si el tema es introductorio, 2-3 si es estandar, 3-4 si es de alta densidad/trampas (como mutabilidad, scope, recursion).
+   - OBLIGATORIO combinar mecanicas distintas: OUTPUT_PREDICTION + PARSONS_PROBLEM (con >=1 isDistractor:true) + BUG_AUTOPSY (codigo que lanza error real) + SYNTAX_CLOZE + CODE_LAB (con "referenceSolution" que pasa los tests y "starterCode" incompleto).
+6. FLASHCARDS ATOMICAS POR CONCEPTO (NO 1 sola por capitulo):
+   - Genera de 2 a 4 bloques "FLASHCARD" atomicos por leccion (una pregunta atómica por concepto clave, con "conceptTerm" y "sourceBlockId" apuntando al reto relacionado cuando aplique).
+7. Usa "linkedFlashcardId", "conceptTags" (1-2 etiquetas) y "gatesNextBlock": true en OUTPUT_PREDICTION y PARSONS_PROBLEM.
+8. En "extractedGlossary" incluye cada termino tecnico relevante con "aliases" (variantes ES/EN/plural) y "snippet" ejecutable minimo.
+9. Usa "sectionTitle" recibido como titulo real de la leccion (o traduccion fiel al idioma elegido).
 
 CONTRATO EXACTO DE CAMPOS POR TIPO DE BLOQUE:
 - PROSE:
@@ -40,23 +52,23 @@ CONTRATO EXACTO DE CAMPOS POR TIPO DE BLOQUE:
   { "blockId": "b2", "type": "OUTPUT_PREDICTION", "gatesNextBlock": true, "conceptTags": ["mutabilidad"], "linkedFlashcardId": "card-1", "prompt": "...", "codeSnippet": "x = 5\\ny = x + 2\\nprint(y)", "options": ["7", "5", "Error", "5 2"], "correctOptionIndex": 0, "expectedReturnType": "int|float|str|bool|NoneType|list|dict|tuple|set|Error", "explanation": "..." }
 - INTERACTIVE_VISUALIZER (usar precomputedMemoryTraces cuando existan):
   { "blockId": "b3", "type": "INTERACTIVE_VISUALIZER", "visualizerKind": "MEMORY_MODEL", "title": "...", "codeContext": "x = 10\\ny = x", "payload": { "memorySteps": [{ "stepIndex": 0, "lineNumber": 1, "explanation": "...", "frames": [{ "name": "<module>", "isCurrent": true, "variables": { "x": "id1" } }], "heap": [{ "id": "id1", "type": "int", "value": "10", "status": "NEW" }] }] } }
-- BUG_AUTOPSY (cuando el tema tenga errores comunes):
+- BUG_AUTOPSY (el codeSnippet DEBE lanzar una excepcion real en Python):
   { "blockId": "b3b", "type": "BUG_AUTOPSY", "title": "...", "prompt": "...", "codeSnippet": "...", "tracebackText": "...", "culpritLineNumber": 2, "options": ["Causa real", "Distractor 1"], "correctOptionIndex": 0, "explanation": "...", "linkedFlashcardId": "card-1" }
 - SYNTAX_CLOZE (ideal para movil):
   { "blockId": "b4", "type": "SYNTAX_CLOZE", "title": "...", "prompt": "...", "codeTemplate": "def saludar(___0___):\\n    ___1___ f'Hola {nombre}'", "blanks": [{ "id": "b0", "options": ["nombre", "'nombre'"], "correctOption": "nombre" }, { "id": "b1", "options": ["return", "print"], "correctOption": "return" }], "explanation": "...", "linkedFlashcardId": "card-1" }
 - PARSONS_PROBLEM (SIEMPRE incluir >= 1 distractor con isDistractor:true y correctOrder:-1):
   { "blockId": "b5", "type": "PARSONS_PROBLEM", "gatesNextBlock": true, "prompt": "...", "blocks": [{ "id": "p1", "code": "def f(x):", "correctOrder": 0, "correctIndent": 0, "isDistractor": false }, { "id": "p2", "code": "return x * 2", "correctOrder": 1, "correctIndent": 1, "isDistractor": false }, { "id": "p3", "code": "print(x * 2)", "correctOrder": -1, "correctIndent": 1, "isDistractor": true }], "linkedFlashcardId": "card-1" }
-- CODE_LAB:
-  { "blockId": "b6", "type": "CODE_LAB", "title": "...", "instructions": "...", "scaffoldMode": "FREE_SANDBOX", "labPhase": "MODIFY|FADED|MAKE", "starterCode": "def resolver(n):\\n    pass", "unitTestCode": "assert resolver(3) == 6", "hiddenTestCode": "assert resolver(0) == 0", "progressiveHints": ["Pista conceptual", "Pista estructural"], "linkedFlashcardId": "card-1" }
+- CODE_LAB (incluir referenceSolution para verificacion automatica):
+  { "blockId": "b6", "type": "CODE_LAB", "title": "...", "instructions": "...", "scaffoldMode": "FREE_SANDBOX", "labPhase": "MODIFY|FADED|MAKE", "starterCode": "def resolver(n):\\n    pass", "referenceSolution": "def resolver(n):\\n    return n * 2", "unitTestCode": "assert resolver(3) == 6", "hiddenTestCode": "assert resolver(0) == 0", "progressiveHints": ["Pista conceptual", "Pista estructural"], "linkedFlashcardId": "card-1" }
 - AST_CHALLENGE:
-  { "blockId": "b6b", "type": "AST_CHALLENGE", "title": "...", "instructions": "...", "starterCode": "...", "astConstraints": { "requiredNodeTypes": ["ListComp"], "customAstMessage": "Usa una comprension de lista." }, "unitTestCode": "...", "hiddenTestCode": "...", "linkedFlashcardId": "card-1" }
+  { "blockId": "b6b", "type": "AST_CHALLENGE", "title": "...", "instructions": "...", "starterCode": "...", "referenceSolution": "...", "astConstraints": { "requiredNodeTypes": ["ListComp"], "customAstMessage": "Usa una comprension de lista." }, "unitTestCode": "...", "hiddenTestCode": "...", "linkedFlashcardId": "card-1" }
 - QUICK_QUIZ:
   { "blockId": "b7", "type": "QUICK_QUIZ", "title": "...", "questions": [{ "id": "q1", "question": "...", "options": ["A", "B", "C"], "correctIndex": 0, "explanation": "..." }] }
-- FLASHCARD (OBLIGATORIO frontMarkdown, backMarkdown y sourceBlockId apuntando al blockId de un reto previo):
-  { "blockId": "b8", "type": "FLASHCARD", "cardId": "card-1", "sourceBlockId": "b2", "frontMarkdown": "Pregunta conceptual", "backMarkdown": "Respuesta clara y concisa", "codeExample": "x = 1", "tags": ["python"] }
+- FLASHCARD (2-4 tarjetas atomicas por leccion):
+  { "blockId": "b8", "type": "FLASHCARD", "cardId": "card-1", "conceptTerm": "aliasing", "sourceBlockId": "b2", "frontMarkdown": "Pregunta atomica sobre 1 solo concepto", "backMarkdown": "Respuesta clara y concisa", "codeExample": "x = 1", "tags": ["python"] }
 
 CAMPOS RAIZ OBLIGATORIOS DE MicroLesson:
-{ "lessonId": "...", "order": 1, "title": "...", "estimatedMinutes": 8, "learningObjectives": ["Objetivo 1", "Objetivo 2"], "takeaways": ["Idea clave 1"], "blocks": [...], "extractedGlossary": { "termino": { "term": "termino", "definition": "...", "chapterIntroduced": 1 } } }`;
+{ "lessonId": "...", "order": 1, "title": "...", "estimatedMinutes": 8, "learningObjectives": ["Objetivo 1", "Objetivo 2"], "takeaways": ["Idea clave 1"], "deepDive": { "internalMechanics": "...", "edgeCases": ["..."], "commonPitfalls": ["..."], "realWorldContrast": "...", "codeExample": "..." }, "exerciseBank": [...], "blocks": [...], "extractedGlossary": { "termino": { "term": "termino", "aliases": ["alias1"], "definition": "...", "snippet": "...", "chapterIntroduced": 1 } } }`;
 }
 
 export const COMPILER_SYSTEM_INSTRUCTION = buildCompilerSystemInstruction('es', 'BALANCED');
@@ -70,6 +82,8 @@ export const MICROLESSON_RESPONSE_SCHEMA = {
     estimatedMinutes: { type: 'number' },
     learningObjectives: { type: 'array', items: { type: 'string' } },
     takeaways: { type: 'array', items: { type: 'string' } },
+    deepDive: { type: 'object' },
+    exerciseBank: { type: 'array', items: { type: 'object' } },
     blocks: { type: 'array', items: { type: 'object' } },
     extractedGlossary: { type: 'object' },
   },

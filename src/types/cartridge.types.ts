@@ -49,12 +49,29 @@ export interface RuntimeRequirements {
   virtualFileSystemSeed: Record<string, string>;
 }
 
+export interface DeepDiveSection {
+  /** Explicación de cómo funciona internamente en Python (modelo mental / CPython / memoria). */
+  internalMechanics: string;
+  /** Casos borde que suelen sorprender incluso a programadores con experiencia. */
+  edgeCases: string[];
+  /** Errores comunes y trampas frecuentes ligadas al concepto. */
+  commonPitfalls: string[];
+  /** Contraste con prácticas reales de producción / código idiomático. */
+  realWorldContrast: string;
+  /** Código mínimo opcional que demuestra el matiz interno. */
+  codeExample?: string;
+}
+
 export interface GlossaryEntry {
   term: string;
   definition: string;
   chapterIntroduced: number;
   pageRef?: number;
   snippet?: string;
+  aliases?: string[];
+  competencyIds?: string[];
+  lessonId?: string;
+  deepDive?: DeepDiveSection;
 }
 
 export interface AchievementSpec {
@@ -90,6 +107,7 @@ export interface BaseBlock {
   type: BlockType;
   gatesNextBlock?: boolean;
   conceptTags?: string[];
+  competencyIds?: string[];
   misconceptionId?: PythonMisconceptionId;
   difficulty?: 1 | 2 | 3;
 }
@@ -210,6 +228,7 @@ export interface CodeLabBlock extends BaseBlock {
   scaffoldMode: 'FREE_SANDBOX' | 'FDR_5_STEPS' | 'MULTI_FILE_PROJECT';
   labPhase?: 'MODIFY' | 'FADED' | 'MAKE';
   starterCode: string;
+  referenceSolution?: string;
   targetFileName?: string;
   unitTestCode: string;
   hiddenTestCode?: string;
@@ -230,6 +249,7 @@ export interface AstChallengeBlock extends BaseBlock {
   title: string;
   instructions: string;
   starterCode: string;
+  referenceSolution?: string;
   astConstraints: AstConstraints;
   unitTestCode: string;
   hiddenTestCode?: string;
@@ -318,6 +338,8 @@ export interface FlashcardBlock extends BaseBlock {
   backMarkdown: string;
   codeExample?: string;
   tags: string[];
+  /** Concepto atómico principal que evalúa esta tarjeta. */
+  conceptTerm?: string;
   /** Enlaza esta tarjeta a un reto verificable (ej. OUTPUT_PREDICTION/BUG_AUTOPSY) para Active SRS. */
   sourceBlockId?: string;
 }
@@ -356,6 +378,12 @@ export interface MicroLesson {
   sourceBookMarkdown?: string;
   /** Rango de paginas reales del libro original (ej. "Pags. 24-29"). */
   sourcePageRange?: string;
+  /** Divulgación progresiva opcional: mecánica interna, casos borde, trampas y contraste real. */
+  deepDive?: DeepDiveSection;
+  /** Competencias canónicas de Python que cubre esta lección. */
+  competencyIds?: string[];
+  /** Banco adicional de ejercicios precompilados (móvil offline + variedad mecánica). */
+  exerciseBank?: LessonBlock[];
   blocks: LessonBlock[];
 }
 

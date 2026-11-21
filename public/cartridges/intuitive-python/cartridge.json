@@ -40,28 +40,43 @@
   "glossary": {
     "comprehension": {
       "term": "comprehension",
-      "definition": "Construccion idiomatica que crea una coleccion en una sola expresion. Una list comprehension reemplaza bucles for imperativos con filtrado.",
+      "aliases": ["list comprehension", "comprehensions", "comprensión de lista", "ListComp"],
+      "definition": "Construcción idiomática que crea una colección en una sola expresión declarativa. Una list comprehension reemplaza bucles for imperativos con filtrado y transformación.",
       "chapterIntroduced": 1,
       "pageRef": 12,
-      "snippet": "[x for x in nums if x % 2 == 0]"
+      "lessonId": "ip-ch1-l1",
+      "competencyIds": ["py.idiom.comprehensions", "py.idiom.ast_introspection"],
+      "snippet": "nums = [1, 2, 3, 4]\nprint([x * x for x in nums if x % 2 == 0])"
     },
     "mutation": {
       "term": "mutation",
-      "definition": "Modificacion in-place de un objeto mutable. Mutar una lista mientras se itera sobre ella produce saltos de elementos inesperados.",
+      "aliases": ["mutación", "mutabilidad", "mutable", "in-place"],
+      "definition": "Modificación in-place de un objeto mutable sin cambiar su identidad (id). Mutar una lista mientras se itera sobre ella produce saltos de elementos inesperados.",
       "chapterIntroduced": 1,
-      "pageRef": 18
+      "pageRef": 18,
+      "lessonId": "ip-ch1-l1",
+      "competencyIds": ["py.memory.mutability", "py.flow.mutation_during_iteration"],
+      "snippet": "nums = [1, 3, 5, 7]\nsafe = [n for n in nums if n % 2 == 0]\nprint(safe)"
     },
     "dataframe": {
       "term": "dataframe",
-      "definition": "Estructura tabular bidimensional de pandas con columnas etiquetadas. Permite filtrar, transformar y agregar datos de forma vectorizada.",
+      "aliases": ["dataframes", "DataFrame", "tabla pandas"],
+      "definition": "Estructura tabular bidimensional de pandas con columnas etiquetadas y tipos homogéneos por columna. Permite filtrar, transformar y agregar datos de forma vectorizada.",
       "chapterIntroduced": 2,
-      "pageRef": 34
+      "pageRef": 34,
+      "lessonId": "ip-ch2-l1",
+      "competencyIds": ["py.data.pandas_dataframes"],
+      "snippet": "data = {'mes': ['Ene', 'Feb'], 'ingresos': [12000, 15400]}\nprint(data['mes'])"
     },
     "vectorization": {
       "term": "vectorization",
-      "definition": "Aplicar operaciones a columnas completas sin bucles explicitos, aprovechando rutinas optimizadas de NumPy por debajo.",
+      "aliases": ["vectorización", "vectorizado", "broadcasting"],
+      "definition": "Aplicar operaciones aritméticas o lógicas a columnas/arrays completos sin bucles Python explícitos, delegando el cómputo en bucles C optimizados de NumPy.",
       "chapterIntroduced": 2,
-      "pageRef": 36
+      "pageRef": 36,
+      "lessonId": "ip-ch2-l1",
+      "competencyIds": ["py.data.numpy_vectorization", "py.data.pandas_dataframes"],
+      "snippet": "ingresos = [12000, 15400]\ncostos = [7500, 8200]\nprint([i - c for i, c in zip(ingresos, costos)])"
     }
   },
   "achievements": [
@@ -99,6 +114,66 @@
           "order": 1,
           "title": "Comprehensions vs Bucles Imperativos",
           "estimatedMinutes": 15,
+          "competencyIds": [
+            "py.idiom.comprehensions",
+            "py.idiom.ast_introspection",
+            "py.flow.mutation_during_iteration"
+          ],
+          "learningObjectives": [
+            "Reemplazar bucles `for` + `append` por comprehensions declarativas (`ListComp`).",
+            "Diagnosticar por qué mutar una lista durante la iteración salta elementos.",
+            "Inspeccionar la estructura sintáctica del código mediante el AST."
+          ],
+          "takeaways": [
+            "Una list comprehension compila al bytecode `LIST_APPEND` y evita búsquedas repetidas del atributo `.append`.",
+            "Nunca uses comprehensions por sus efectos secundarios (ej. `[print(x) for x in xs]`).",
+            "Filtrar creando una nueva lista evita corromper el índice interno del iterador."
+          ],
+          "sourcePageRange": "Págs. 12–19",
+          "sourceBookMarkdown": "##### Página 12\n\n### 1.3 Declarative Collections with Comprehensions\n\nWhen transforming and filtering an iterable in Python, an imperative `for` loop spreads a single intent across four lines and repeatedly invokes `result.append(...)`. A **comprehension** collapses the allocation, iteration, filter, and transformation into a single readable expression:\n\n```python\neven_sq = [n * n for n in nums if n % 2 == 0]\n```\n\nAt the Abstract Syntax Tree (AST) level, Python parses this as a `ListComp` node rather than a `For` statement. In Python 3, the loop variable inside a comprehension also has its own isolated scope, preventing variable leakage.\n\n---\n\n##### Página 18\n\n### Avoiding In-Place Mutation During Iteration\n\nA classic bug occurs when developers remove items from a list while iterating over that very list:\n\n```python\nnums = [1, 3, 5, 7]\nfor n in nums:\n    if n % 2 != 0:\n        nums.remove(n)\n# nums ends up as [3, 7] instead of []!\n```\n\nBecause the list iterator tracks a numeric index (`0, 1, 2...`), removing index `0` shifts `3` down into index `0`, so when the iterator advances to index `1`, it skips `3` completely. Replacing the loop with a comprehension `[n for n in nums if n % 2 == 0]` eliminates the bug cleanly.",
+          "deepDive": {
+            "internalMechanics": "En Python 3.12+ (PEP 709), las list comprehensions se compilan inline dentro del frame actual usando la instrucción dedicada `LIST_APPEND`, eliminando incluso la sobrecarga de crear un frame temporal de función que existía en Python 3.11. Por eso suelen ser entre 20% y 40% más rápidas que un bucle `for` equivalente con `.append()`.",
+            "edgeCases": [
+              "Una expresión generadora `(n*n for n in nums)` usa memoria O(1) frente a O(n) de `[...]`, ideal cuando solo necesitas pasar el resultado a `sum()`, `any()` o `max()`.",
+              "Si usas un condicional ternario (`a if cond else b`), va ANTES del `for`; el filtro (`if cond`) va DESPUÉS del `for`.",
+              "Mutar una lista durante un `for` no lanza `RuntimeError` (a diferencia de `dict` o `set`), lo cual hace el bug silencioso y más peligroso."
+            ],
+            "commonPitfalls": [
+              "Anidar más de dos `for` en una comprehension destruye la legibilidad: en esos casos un bucle explícito es mejor.",
+              "Escribir `[print(x) for x in xs]` construye una lista inútil de `[None, None, ...]` en memoria."
+            ],
+            "realWorldContrast": "En revisiones de código profesionales (ruff/flake8), las comprehensions se usan para transformaciones de 1 o 2 cláusulas; para lógica con manejo de errores o efectos secundarios se prefiere un `for` explícito.",
+            "codeExample": "nums = [1, 3, 5, 7]\nbad = nums.copy()\nfor n in bad:\n    if n % 2 != 0:\n        bad.remove(n)\nprint('buggy:', bad)\nprint('clean:', [n for n in nums if n % 2 == 0])"
+          },
+          "exerciseBank": [
+            {
+              "blockId": "ip-ch1-l1-bank-pred-1",
+              "type": "OUTPUT_PREDICTION",
+              "prompt": "¿Cuál es la salida EXACTA de este bucle que muta `nums` mientras itera?",
+              "codeSnippet": "nums = [1, 3, 5, 7]\nfor n in nums:\n    if n % 2 != 0:\n        nums.remove(n)\nprint(nums)",
+              "options": ["[3, 7]", "[]", "[1, 5]", "RuntimeError"],
+              "correctOptionIndex": 0,
+              "expectedReturnType": "list",
+              "explanation": "Al eliminar `1` en índice 0, `3` se desplaza a 0 y el iterador salta al índice 1 (`5`), eliminando `5` y saltando `7`. Sobreviven `[3, 7]`.",
+              "competencyIds": ["py.flow.mutation_during_iteration"],
+              "misconceptionId": "SHALLOW_LOOP_MUTATION",
+              "conceptTags": ["mutation"]
+            },
+            {
+              "blockId": "ip-ch1-l1-bank-cloze-1",
+              "type": "SYNTAX_CLOZE",
+              "title": "Transformación condicional en Comprehension",
+              "prompt": "Completa la list comprehension para etiquetar pares como `'par'` e impares como `'impar'` (recuerda dónde va el ternario):",
+              "codeTemplate": "labels = ['par' ___0___ n % 2 == 0 ___1___ 'impar' for n in [1, 2, 3]]",
+              "blanks": [
+                { "id": "b0", "options": ["if", "for", "where"], "correctOption": "if" },
+                { "id": "b1", "options": ["else", "elif", "or"], "correctOption": "else" }
+              ],
+              "explanation": "Cuando transformas ambos casos (ternario `A if cond else B`), la expresión completa va ANTES de `for`.",
+              "competencyIds": ["py.idiom.comprehensions"],
+              "conceptTags": ["comprehension"]
+            }
+          ],
           "blocks": [
             {
               "blockId": "ip-ch1-l1-prose-1",
@@ -114,6 +189,7 @@
               "blockId": "ip-ch1-l1-ast-1",
               "type": "AST_CHALLENGE",
               "gatesNextBlock": true,
+              "competencyIds": ["py.idiom.comprehensions", "py.idiom.ast_introspection"],
               "title": "Filtra Pares con List Comprehension",
               "instructions": "Escribe una funcion `even_squares(nums)` que devuelva los cuadrados de los numeros pares usando estrictamente una List Comprehension. No se permite un bucle for tradicional.",
               "starterCode": "def even_squares(nums: list[int]) -> list[int]:\n    \"\"\"Return squares of even numbers using a list comprehension.\"\"\"\n    return [n * n for n in nums if n % 2 == 0]\n",
@@ -124,15 +200,18 @@
                 "customAstMessage": "Debes resolverlo usando una List Comprehension, no un bucle for tradicional."
               },
               "unitTestCode": "assert even_squares([1, 2, 3, 4]) == [4, 16]\nassert even_squares([2, 4, 6]) == [4, 16, 36]\nassert even_squares([1, 3, 5]) == []\n",
+              "hiddenTestCode": "assert even_squares([]) == []\nassert even_squares([-2, -3, 0]) == [4, 0]\n",
               "linkedFlashcardId": "ip-card-listcomp"
             },
             {
               "blockId": "ip-ch1-l1-bug-1",
               "type": "BUG_AUTOPSY",
+              "competencyIds": ["py.flow.mutation_during_iteration"],
+              "misconceptionId": "SHALLOW_LOOP_MUTATION",
               "title": "Autopsia: Mutacion Durante Iteracion",
               "prompt": "Este codigo intenta eliminar los numeros impares de una lista, pero deja elementos sin procesar. Identifica la linea culpable y la causa raiz.",
               "codeSnippet": "nums = [1, 2, 3, 4, 5, 6]\nfor n in nums:\n    if n % 2 != 0:\n        nums.remove(n)\nprint(nums)",
-              "tracebackText": "Salida inesperada: [2, 4, 6] esperado, pero se obtuvo [2, 4, 6] solo por casualidad.\nCon [1, 2, 3, 4, 5] el resultado real es [2, 4] pero con [1, 3, 5, 7] el resultado es [3, 7].\nEl iterador interno salta elementos porque la lista se acorta mientras se recorre.",
+              "tracebackText": "Salida inesperada: con [1, 3, 5, 7] el resultado real es [3, 7] en lugar de [].\nEl iterador interno salta elementos porque la lista se acorta mientras se recorre.",
               "culpritLineNumber": 4,
               "options": [
                 "Mutar la lista con remove() mientras el bucle for la itera desplaza los indices y salta elementos.",
@@ -147,6 +226,8 @@
             {
               "blockId": "ip-ch1-l1-parsons-1",
               "type": "PARSONS_PROBLEM",
+              "gatesNextBlock": true,
+              "competencyIds": ["py.idiom.comprehensions"],
               "prompt": "Reconstruye la comprehension que devuelve los cuadrados de los numeros pares.",
               "blocks": [
                 { "id": "q1", "code": "def even_squares(nums: list[int]) -> list[int]:", "correctOrder": 0, "correctIndent": 0, "isDistractor": false },
@@ -159,6 +240,8 @@
               "blockId": "ip-ch1-l1-card-1",
               "type": "FLASHCARD",
               "cardId": "ip-card-listcomp",
+              "conceptTerm": "comprehension",
+              "competencyIds": ["py.idiom.comprehensions", "py.idiom.ast_introspection"],
               "frontMarkdown": "¿Que nodo AST produce una list comprehension y por que es preferible a un bucle for?",
               "backMarkdown": "Produce un nodo ListComp. Es preferible porque es declarativa, mas concisa y a menudo mas rapida al evitar el overhead de append() en un bucle explicito.",
               "codeExample": "[n * n for n in nums if n % 2 == 0]",
@@ -168,6 +251,9 @@
               "blockId": "ip-ch1-l1-card-2",
               "type": "FLASHCARD",
               "cardId": "ip-card-mutation",
+              "conceptTerm": "mutation",
+              "sourceBlockId": "ip-ch1-l1-bug-1",
+              "competencyIds": ["py.flow.mutation_during_iteration"],
               "frontMarkdown": "¿Por que es peligroso mutar una lista mientras se itera sobre ella?",
               "backMarkdown": "Porque el iterador mantiene un indice interno que se desincroniza al eliminar elementos, saltando valores. La solucion es crear una nueva lista con comprehension o iterar sobre una copia.",
               "codeExample": "# Malo:\nfor n in nums:\n    if n % 2: nums.remove(n)\n# Bueno:\nnums = [n for n in nums if n % 2 == 0]",
@@ -188,6 +274,52 @@
           "order": 1,
           "title": "Limpieza de ventas_q1.csv y Margen Neto",
           "estimatedMinutes": 18,
+          "competencyIds": [
+            "py.data.pandas_dataframes",
+            "py.data.numpy_vectorization",
+            "py.data.visualization_matplotlib"
+          ],
+          "learningObjectives": [
+            "Cargar archivos CSV en un DataFrame de pandas.",
+            "Derivar nuevas columnas mediante operaciones vectorizadas sin `iterrows()`.",
+            "Construir un gráfico de barras reproducible con Matplotlib."
+          ],
+          "takeaways": [
+            "Las columnas de un DataFrame son `Series` respaldadas por arrays contiguos de NumPy/Arrow.",
+            "Evita `iterrows()` en transformaciones numéricas: la vectorización es órdenes de magnitud más rápida.",
+            "Usar `.loc[fila, col]` evita advertencias de `SettingWithCopyWarning`."
+          ],
+          "sourcePageRange": "Págs. 34–39",
+          "sourceBookMarkdown": "##### Página 34\n\n### 2.1 Tabular Pipelines with Pandas DataFrames\n\nA pandas **DataFrame** stores tabular data in columnar arrays. Reading a CSV file with `pd.read_csv('ventas_q1.csv')` automatically infers column names and numeric types.\n\n```python\ndf = pd.read_csv('ventas_q1.csv')\ndf['margen'] = df['ingresos'] - df['costos']\n```\n\nBecause pandas aligns columns by index and delegates arithmetic to compiled NumPy loops (**vectorization**), subtracting two entire columns runs in microseconds even across hundreds of thousands of rows — without writing a single Python `for` loop.",
+          "deepDive": {
+            "internalMechanics": "Cada columna de un DataFrame de pandas almacena datos contiguos en memoria (arrays de NumPy o PyArrow), permitiendo que la CPU aplique instrucciones SIMD sobre bloques completos de enteros/flotantes en C sin pasar por el bucle del intérprete Python fila por fila.",
+            "edgeCases": [
+              "Las operaciones entre dos Series se alinean por etiqueta de índice (`index`), no solo por posición; índices desalineados introducen valores `NaN` silenciosos.",
+              "Encadenar indexación (`df[df['ingresos'] > 10000]['margen'] = 0`) puede modificar una copia temporal en vez del DataFrame original (`SettingWithCopyWarning`). Usa `df.loc[mask, 'margen'] = 0`."
+            ],
+            "commonPitfalls": [
+              "Usar `df.iterrows()` para calcular columnas derivadas en lugar de aritmética vectorizada.",
+              "Olvidar `na_values` o valores faltantes (`NaN`) antes de convertir tipos o graficar."
+            ],
+            "realWorldContrast": "En pipelines de datos modernos (pandas 2.x / Polars), se encadenan transformaciones puras con `.assign(...)` y `.pipe(...)` para mantener reproducibilidad y trazabilidad.",
+            "codeExample": "ingresos = [12000, 15400, 18900]\ncostos = [7500, 8200, 9100]\nmargenes = [i - c for i, c in zip(ingresos, costos)]\nprint('Margenes Q1:', margenes)"
+          },
+          "exerciseBank": [
+            {
+              "blockId": "ip-ch2-l1-bank-cloze-1",
+              "type": "SYNTAX_CLOZE",
+              "title": "Columna derivada vectorizada en Pandas",
+              "prompt": "Completa la lectura del CSV y el cálculo vectorizado de la columna `margen`:",
+              "codeTemplate": "df = pd.___0___('ventas_q1.csv')\ndf['margen'] = df['ingresos'] ___1___ df['costos']",
+              "blanks": [
+                { "id": "b0", "options": ["read_csv", "open_csv", "load_csv"], "correctOption": "read_csv" },
+                { "id": "b1", "options": ["-", "+", "/"], "correctOption": "-" }
+              ],
+              "explanation": "`pd.read_csv()` carga el archivo en un DataFrame y la resta `-` entre columnas se ejecuta de forma vectorizada.",
+              "competencyIds": ["py.data.pandas_dataframes", "py.data.numpy_vectorization"],
+              "conceptTags": ["dataframe", "vectorization"]
+            }
+          ],
           "blocks": [
             {
               "blockId": "ip-ch2-l1-prose-1",
@@ -225,6 +357,7 @@
             {
               "blockId": "ip-ch2-l1-lab-1",
               "type": "CODE_LAB",
+              "competencyIds": ["py.data.pandas_dataframes", "py.data.visualization_matplotlib"],
               "title": "Proyecto: Margen Neto y Grafico de Barras",
               "instructions": "Lee ventas_q1.csv desde el Virtual FS con pandas, calcula la columna margen y genera un grafico de barras de margen por mes con matplotlib.pyplot. El grafico aparecera en la pestana Graficas.",
               "scaffoldMode": "MULTI_FILE_PROJECT",
@@ -237,10 +370,23 @@
               "blockId": "ip-ch2-l1-card-1",
               "type": "FLASHCARD",
               "cardId": "ip-card-pandas",
+              "conceptTerm": "dataframe",
+              "competencyIds": ["py.data.pandas_dataframes", "py.data.numpy_vectorization"],
               "frontMarkdown": "¿Como se calcula una nueva columna derivada en un DataFrame de pandas?",
               "backMarkdown": "Asignando una expresion vectorizada a un nombre de columna: df['nueva'] = df['a'] - df['b']. La operacion se aplica a todas las filas sin bucles explicitos.",
               "codeExample": "df['margen'] = df['ingresos'] - df['costos']",
               "tags": ["pandas", "dataframe", "vectorizacion"]
+            },
+            {
+              "blockId": "ip-ch2-l1-card-2",
+              "type": "FLASHCARD",
+              "cardId": "ip-card-vectorization",
+              "conceptTerm": "vectorization",
+              "competencyIds": ["py.data.numpy_vectorization"],
+              "frontMarkdown": "¿Por qué las operaciones vectorizadas en pandas/NumPy son mucho más rápidas que `iterrows()`?",
+              "backMarkdown": "Porque ejecutan el cálculo en bloques contiguos de memoria en C/SIMD sin el overhead de crear objetos Python fila por fila en cada iteración.",
+              "codeExample": "df['margen'] = df['ingresos'] - df['costos']  # O(n) en C",
+              "tags": ["vectorizacion", "numpy", "rendimiento"]
             }
           ]
         }

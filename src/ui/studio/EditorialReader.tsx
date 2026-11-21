@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSanitize from 'rehype-sanitize';
@@ -14,13 +14,34 @@ import {
   Sparkles,
   BookText,
   RefreshCw,
+  ChevronDown,
+  ChevronUp,
+  Layers,
+  Loader2,
+  Wand2,
 } from 'lucide-react';
-import type { BookCartridge, GlossaryEntry, LessonBlock, ProseBlock, YouTubeRefBlock } from '../../types/cartridge.types';
+import type {
+  BookCartridge,
+  DeepDiveSection,
+  GlossaryEntry,
+  LessonBlock,
+  ProseBlock,
+  YouTubeRefBlock,
+} from '../../types/cartridge.types';
+import { livingBooksDb, type GlobalConceptRecord } from '../../db/dexieDb';
 import { usePlatformStore } from '../../store/usePlatformStore';
+import {
+  autoLinkGlossaryMarkdown,
+  buildAutoLinkTargets,
+  type AutoLinkTarget,
+} from '../../engine/knowledge/glossaryAutoLinker';
+import { normalizeConceptKey } from '../../engine/knowledge/knowledgeIndexer';
+import { generateExtendedDeepDiveOnDemand } from '../../engine/compiler/dynamicExerciseGenerator';
 import { cn } from '../utils/cn';
 import { sanitizeYouTubeId } from '../utils/sanitize';
 
 type ReaderTab = 'COMBINED' | 'BOOK' | 'GUIDE';
+type DeepDiveTab = 'MECHANICS' | 'EDGES' | 'PITFALLS' | 'REAL_WORLD';
 
 const CALLOUT_META: Record<
   NonNullable<ProseBlock['callout']>['kind'],
@@ -32,25 +53,21 @@ const CALLOUT_META: Record<
   ERROR_TRAP: { icon: Bug, className: 'border-danger/40 bg-danger/5 text-danger', label: 'Trampa' },
 };
 
-function preprocessGlossaryLinks(markdown: string): string {
-  const safe = typeof markdown === 'string' ? markdown : '';
-  return safe.replace(/\[\[([^\]]+)\]\]/g, (_m, term: string) => {
-    return `[${term}](#glossary:${encodeURIComponent(term)})`;
-  });
-}
-
 function RichMarkdown({
   content,
-  glossary,
-  onTermClick,
+  autoLinkTargets,
+  onConceptKeyClick,
   onTryCode,
 }: {
   content: string;
-  glossary: Record<string, GlossaryEntry>;
-  onTermClick: (entry: GlossaryEntry) => void;
+  autoLinkTargets: AutoLinkTarget[];
+  onConceptKeyClick: (conceptKey: string, label: string) => void;
   onTryCode?: (code: string) => void;
 }) {
-  const markdown = useMemo(() => preprocessGlossaryLinks(content), [content]);
+  const markdown = useMemo(
+    () => autoLinkGlossaryMarkdown(content, autoLinkTargets),
+    [content, autoLinkTargets]
+  );
 
   return (
     <div className="editorial-prose space-y-2.5 text-sm leading-relaxed text-primary">
@@ -111,13 +128,13 @@ function RichMarkdown({
           ),
           a: ({ href, children }) => {
             if (href?.startsWith('#glossary:')) {
-              const term = decodeURIComponent(href.slice('#glossary:'.length));
-              const entry = glossary[term];
+              const key = decodeURIComponent(href.slice('#glossary:'.length));
+              const label = typeof children === 'string' ? children : key;
               return (
                 <button
                   type="button"
-                  onClick={() => entry && onTermClick(entry)}
-                  className="mx-0.5 border-b border-dotted border-accent text-accent hover:bg-accent/10"
+                  onClick={() => onConceptKeyClick(key, label)}
+                  className="mx-0.5 border-b border-dotted border-accent text-accent transition-colors hover:bg-accent/10"
                 >
                   {children}
                 </button>
@@ -144,13 +161,17 @@ function RichMarkdown({
 
 function ProseRenderer({
   block,
-  glossary,
-  onTermClick,
+  stepNumber,
+  isActiveStep,
+  autoLinkTargets,
+  onConceptKeyClick,
   onTryCode,
 }: {
   block: ProseBlock;
-  glossary: Record<string, GlossaryEntry>;
-  onTermClick: (entry: GlossaryEntry) => void;
+  stepNumber: number;
+  isActiveStep: boolean;
+  autoLinkTargets: AutoLinkTarget[];
+  onConceptKeyClick: (conceptKey: string, label: string) => void;
   onTryCode?: (code: string) => void;
 }) {
   const callout = block.callout;
@@ -158,26 +179,45 @@ function ProseRenderer({
   const CalloutIcon = calloutMeta?.icon;
 
   return (
-    <div className="space-y-3">
-      {block.subgoals && block.subgoals.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {block.subgoals.map((sg, idx) => (
-            <span
-              key={idx}
-              className="inline-flex items-center gap-1 rounded-full border border-accent/30 bg-accent/10 px-2.5 py-0.5 text-[10px] font-semibold text-accent"
-              title={sg.description}
-            >
-              <span className="opacity-70">#{idx + 1}</span> {sg.label}
-            </span>
-          ))}
-        </div>
+    <div
+      className={cn(
+        'space-y-3 rounded-xl border p-3.5 transition-colors',
+        isActiveStep
+          ? 'border-accent/40 bg-accent/[0.03]'
+          : 'border-subtle/60 bg-surface/20'
       )}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span
+          className={cn(
+            'rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider',
+            isActiveStep ? 'bg-accent/15 text-accent' : 'bg-elevated text-muted'
+          )}
+        >
+          Sección · Paso {stepNumber}
+        </span>
+        {block.subgoals && block.subgoals.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {block.subgoals.map((sg, idx) => (
+              <span
+                key={idx}
+                className="inline-flex items-center gap-1 rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-[10px] font-semibold text-accent"
+                title={sg.description}
+              >
+                <span className="opacity-70">#{idx + 1}</span> {sg.label}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
       <RichMarkdown
         content={block.markdown}
-        glossary={glossary}
-        onTermClick={onTermClick}
+        autoLinkTargets={autoLinkTargets}
+        onConceptKeyClick={onConceptKeyClick}
         onTryCode={onTryCode}
       />
+
       {callout && calloutMeta && CalloutIcon && (
         <div className={cn('rounded-md border p-3', calloutMeta.className)}>
           <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold">
@@ -214,49 +254,314 @@ function YouTubeRefRenderer({ block }: { block: YouTubeRefBlock }) {
   );
 }
 
+function DeepDiveAccordion({
+  bookId,
+  lessonId,
+  lessonTitle,
+  initialDeepDive,
+  contextExcerpt,
+  onTryCode,
+}: {
+  bookId: string;
+  lessonId: string;
+  lessonTitle: string;
+  initialDeepDive?: DeepDiveSection;
+  contextExcerpt: string;
+  onTryCode?: (code: string) => void;
+}) {
+  const settings = usePlatformStore((s) => s.settings);
+  const preferredLanguage = usePlatformStore((s) => s.preferredLanguage);
+  const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<DeepDiveTab>('MECHANICS');
+  const [deepDive, setDeepDive] = useState<DeepDiveSection | null>(initialDeepDive ?? null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDeepDive(initialDeepDive ?? null);
+    setOpen(false);
+    setError(null);
+    if (!initialDeepDive && livingBooksDb.deepDiveCache) {
+      const cacheKey = `${bookId}::${lessonId}::lesson`;
+      void livingBooksDb.deepDiveCache
+        .get(cacheKey)
+        .then((cached) => {
+          if (cached) setDeepDive(cached.deepDive);
+        })
+        .catch(() => {});
+    }
+  }, [bookId, lessonId, initialDeepDive]);
+
+  const handleGenerateDeepDive = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const generated = await generateExtendedDeepDiveOnDemand(
+        {
+          bookId,
+          lessonId,
+          title: lessonTitle,
+          contextExcerpt,
+          language: preferredLanguage,
+        },
+        {
+          provider: settings.llmProvider,
+          openrouterApiKey: settings.openrouterApiKey,
+          geminiApiKey: settings.geminiApiKey,
+          model:
+            settings.llmProvider === 'gemini' ? settings.geminiModel : settings.openrouterModel,
+        }
+      );
+      setDeepDive(generated);
+      setOpen(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!deepDive) {
+    return (
+      <div className="rounded-xl border border-dashed border-accent/35 bg-accent/[0.03] p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-accent">
+              <Layers size={13} /> Divulgación progresiva (Deep Dive)
+            </p>
+            <p className="text-[11px] text-muted">
+              ¿Quieres ir más allá? Genera mecánica interna, casos borde y trampas reales (se guarda offline).
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => void handleGenerateDeepDive()}
+            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 text-[11px] font-semibold text-accent hover:bg-accent/20 disabled:opacity-50"
+          >
+            {loading ? <Loader2 size={12} className="animate-spin" /> : <Wand2 size={12} />}
+            Profundizar
+          </button>
+        </div>
+        {error && <p className="mt-2 text-[11px] text-danger">{error}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-accent/35 bg-surface/60">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-2 px-3.5 py-2.5 text-left transition-colors hover:bg-accent/5"
+      >
+        <div className="flex items-center gap-2">
+          <Layers size={14} className="text-accent" />
+          <span className="text-xs font-bold text-primary">
+            Deep Dive: Mecánica interna, casos borde y producción
+          </span>
+          <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[9px] font-semibold text-accent">
+            Opcional
+          </span>
+        </div>
+        {open ? <ChevronUp size={14} className="text-muted" /> : <ChevronDown size={14} className="text-muted" />}
+      </button>
+
+      {open && (
+        <div className="border-t border-subtle p-3.5">
+          <div className="mb-3 flex flex-wrap gap-1">
+            {([
+              { id: 'MECHANICS' as const, label: 'Cómo funciona' },
+              { id: 'EDGES' as const, label: `Casos borde (${deepDive.edgeCases.length})` },
+              { id: 'PITFALLS' as const, label: `Errores comunes (${deepDive.commonPitfalls.length})` },
+              { id: 'REAL_WORLD' as const, label: 'Práctica real' },
+            ]).map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTab(t.id)}
+                className={cn(
+                  'rounded-lg px-2.5 py-1 text-[10px] font-semibold transition-colors',
+                  tab === t.id ? 'bg-accent text-canvas' : 'bg-elevated text-muted hover:text-primary'
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {tab === 'MECHANICS' && (
+            <p className="whitespace-pre-wrap text-xs leading-relaxed text-primary">
+              {deepDive.internalMechanics}
+            </p>
+          )}
+          {tab === 'EDGES' && (
+            <ul className="list-disc space-y-1.5 pl-4 text-xs text-primary">
+              {deepDive.edgeCases.map((item, idx) => (
+                <li key={idx}>{item}</li>
+              ))}
+            </ul>
+          )}
+          {tab === 'PITFALLS' && (
+            <ul className="list-disc space-y-1.5 pl-4 text-xs text-primary">
+              {deepDive.commonPitfalls.map((item, idx) => (
+                <li key={idx}>{item}</li>
+              ))}
+            </ul>
+          )}
+          {tab === 'REAL_WORLD' && (
+            <p className="whitespace-pre-wrap text-xs leading-relaxed text-primary">
+              {deepDive.realWorldContrast}
+            </p>
+          )}
+
+          {deepDive.codeExample && (
+            <div className="mt-3 overflow-hidden rounded-lg border border-subtle bg-canvas">
+              <div className="flex items-center justify-between border-b border-subtle/60 bg-surface/60 px-2.5 py-1">
+                <span className="text-[10px] font-semibold uppercase text-muted">
+                  Demostración técnica
+                </span>
+                {onTryCode && (
+                  <button
+                    type="button"
+                    onClick={() => onTryCode(deepDive.codeExample!)}
+                    className="flex items-center gap-1 rounded bg-accent/15 px-2 py-0.5 text-[10px] font-semibold text-accent hover:bg-accent/25"
+                  >
+                    <Play size={9} /> Probar
+                  </button>
+                )}
+              </div>
+              <pre className="code-font overflow-x-auto p-2.5 text-[11px] text-secondary">
+                {deepDive.codeExample}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function EditorialReader({
   cartridge,
+  lessonId,
+  lessonTitle,
+  chapterNumber,
+  chapterTitle,
+  lessonIndex,
+  totalLessonsInChapter,
   blocks,
+  activeBlockIndex = 0,
   unlockedBlockIndex,
   learningObjectives,
   takeaways,
+  deepDive,
   sourceBookMarkdown,
   sourcePageRange,
   onTryCode,
   onRecompileBook,
 }: {
   cartridge: BookCartridge;
+  lessonId?: string;
+  lessonTitle?: string;
+  chapterNumber?: number;
+  chapterTitle?: string;
+  lessonIndex?: number;
+  totalLessonsInChapter?: number;
   blocks: LessonBlock[];
+  activeBlockIndex?: number;
   unlockedBlockIndex: number;
   learningObjectives?: string[];
   takeaways?: string[];
+  deepDive?: DeepDiveSection;
   sourceBookMarkdown?: string;
   sourcePageRange?: string;
   onTryCode?: (code: string) => void;
   onRecompileBook?: () => void;
 }) {
   const setActiveGlossaryTerm = usePlatformStore((s) => s.setActiveGlossaryTerm);
+  const setActiveConceptModal = usePlatformStore((s) => s.setActiveConceptModal);
+  const globalConcepts = usePlatformStore((s) => s.globalConcepts);
+
   const [readerTab, setReaderTab] = useState<ReaderTab>('GUIDE');
   const [expandedForSource, setExpandedForSource] = useState<string | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const activeStepRef = useRef<HTMLDivElement>(null);
+
   const expandFullBookPassage = Boolean(sourceBookMarkdown && expandedForSource === sourceBookMarkdown);
   const setExpandFullBookPassage = (next: boolean | ((prev: boolean) => boolean)) => {
     const resolved = typeof next === 'function' ? next(expandFullBookPassage) : next;
     setExpandedForSource(resolved && sourceBookMarkdown ? sourceBookMarkdown : null);
   };
 
+  // Aislamiento estricto de scroll al cambiar de unidad/lección
+  useEffect(() => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = 0;
+    }
+  }, [lessonId]);
+
+  // Al avanzar a un bloque PROSE nuevo, hacer scroll suave hacia ese paso
+  useEffect(() => {
+    const current = blocks[activeBlockIndex];
+    if (current?.type === 'PROSE' && activeBlockIndex > 0 && activeStepRef.current) {
+      activeStepRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [activeBlockIndex, blocks]);
+
+  const autoLinkTargets = useMemo(
+    () => buildAutoLinkTargets(cartridge.glossary, globalConcepts),
+    [cartridge.glossary, globalConcepts]
+  );
+
+  const handleConceptKeyClick = (conceptKey: string, label: string) => {
+    const norm = normalizeConceptKey(conceptKey);
+    const globalMatch: GlobalConceptRecord | undefined = globalConcepts.find(
+      (c) =>
+        c.conceptKey === norm ||
+        c.term.toLowerCase() === label.toLowerCase() ||
+        c.aliases.some((a) => normalizeConceptKey(a) === norm)
+    );
+    if (globalMatch) {
+      setActiveConceptModal(globalMatch);
+      return;
+    }
+    // Fallback al glosario local del cartucho (case-insensitive)
+    const localEntry: GlossaryEntry | undefined =
+      cartridge.glossary[label] ??
+      Object.values(cartridge.glossary).find(
+        (g) =>
+          normalizeConceptKey(g.term) === norm ||
+          g.aliases?.some((a) => normalizeConceptKey(a) === norm)
+      );
+    if (localEntry) {
+      setActiveGlossaryTerm(localEntry);
+    }
+  };
+
   // Mostrar todos los bloques PROSE/YOUTUBE introductorios previos al primer reto desde el Paso 1
-  const visibleBlocks = useMemo(() => {
+  const visibleBlocksWithIndex = useMemo(() => {
     const firstInteractiveIdx = blocks.findIndex(
       (b) => b.type !== 'PROSE' && b.type !== 'YOUTUBE_REF' && b.type !== 'FLASHCARD'
     );
     const introEnd = firstInteractiveIdx > 0 ? firstInteractiveIdx - 1 : blocks.length - 1;
     const minReveal = Math.max(unlockedBlockIndex, introEnd);
-    return blocks.slice(0, Math.min(minReveal + 1, blocks.length));
+    return blocks
+      .slice(0, Math.min(minReveal + 1, blocks.length))
+      .map((block, originalIndex) => ({ block, originalIndex }))
+      .filter(({ block }) => block.type === 'PROSE' || block.type === 'YOUTUBE_REF');
   }, [blocks, unlockedBlockIndex]);
 
-  const proseBlocks = visibleBlocks.filter((b) => b.type === 'PROSE' || b.type === 'YOUTUBE_REF');
   const isLessonEndReached = unlockedBlockIndex >= blocks.length - 1;
   const hasBookSource = Boolean(sourceBookMarkdown && sourceBookMarkdown.trim().length > 0);
+
+  const contextExcerpt = useMemo(() => {
+    const prose = blocks
+      .filter((b): b is ProseBlock => b.type === 'PROSE')
+      .map((b) => b.markdown)
+      .join('\n\n');
+    return prose || sourceBookMarkdown || lessonTitle || '';
+  }, [blocks, sourceBookMarkdown, lessonTitle]);
 
   const { excerptMarkdown, isBookTruncated } = useMemo(() => {
     if (!sourceBookMarkdown) return { excerptMarkdown: '', isBookTruncated: false };
@@ -267,7 +572,6 @@ export function EditorialReader({
     let cut = sourceBookMarkdown.lastIndexOf('\n\n', PREVIEW_LIMIT);
     if (cut < PREVIEW_LIMIT * 0.5) cut = PREVIEW_LIMIT;
     let slice = sourceBookMarkdown.slice(0, cut).trim();
-    // No dejar una cerca de codigo ``` abierta en el extracto
     if ((slice.match(/```/g) ?? []).length % 2 === 1) {
       const nextClose = sourceBookMarkdown.indexOf('```', cut);
       if (nextClose !== -1 && nextClose < cut + 1200) {
@@ -313,15 +617,40 @@ export function EditorialReader({
         )}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+      <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
         <div className="space-y-5">
+          {/* Cabecera visual clara de aislamiento por unidad/lección */}
+          {(lessonTitle || chapterNumber !== undefined) && (
+            <div className="border-b border-subtle pb-3">
+              <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-accent">
+                {chapterNumber !== undefined && <span>Módulo {chapterNumber}</span>}
+                {lessonIndex !== undefined && totalLessonsInChapter !== undefined && (
+                  <>
+                    <span className="text-muted">·</span>
+                    <span className="text-muted">
+                      Lección {lessonIndex + 1} de {totalLessonsInChapter}
+                    </span>
+                  </>
+                )}
+              </div>
+              {lessonTitle && (
+                <h1 className="mt-1 text-base font-bold leading-snug text-primary sm:text-lg">
+                  {lessonTitle}
+                </h1>
+              )}
+              {chapterTitle && (
+                <p className="mt-0.5 text-[11px] text-muted">{chapterTitle}</p>
+              )}
+            </div>
+          )}
+
           {/* Guía Interactiva / Objetivos */}
           {(readerTab === 'COMBINED' || readerTab === 'GUIDE') && (
             <div className="space-y-4">
               {learningObjectives && learningObjectives.length > 0 && (
                 <div className="rounded-xl border border-accent/30 bg-accent/5 p-3">
                   <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-accent">
-                    <Target size={12} /> Objetivos de esta leccion
+                    <Target size={12} /> Objetivos de esta lección
                   </p>
                   <ul className="space-y-1 text-xs text-primary">
                     {learningObjectives.map((obj, idx) => (
@@ -334,16 +663,20 @@ export function EditorialReader({
                 </div>
               )}
 
-              {proseBlocks.map((block) => {
+              {visibleBlocksWithIndex.map(({ block, originalIndex }) => {
+                const isActive = originalIndex === activeBlockIndex;
                 if (block.type === 'PROSE') {
                   return (
-                    <ProseRenderer
-                      key={block.blockId}
-                      block={block}
-                      glossary={cartridge.glossary}
-                      onTermClick={setActiveGlossaryTerm}
-                      onTryCode={onTryCode}
-                    />
+                    <div key={block.blockId} ref={isActive ? activeStepRef : undefined}>
+                      <ProseRenderer
+                        block={block}
+                        stepNumber={originalIndex + 1}
+                        isActiveStep={isActive}
+                        autoLinkTargets={autoLinkTargets}
+                        onConceptKeyClick={handleConceptKeyClick}
+                        onTryCode={onTryCode}
+                      />
+                    </div>
                   );
                 }
                 if (block.type === 'YOUTUBE_REF') {
@@ -351,10 +684,22 @@ export function EditorialReader({
                 }
                 return null;
               })}
+
+              {/* Capa de Divulgación Progresiva (Deep Dive) */}
+              {lessonId && (
+                <DeepDiveAccordion
+                  bookId={cartridge.bookId}
+                  lessonId={lessonId}
+                  lessonTitle={lessonTitle ?? lessonId}
+                  initialDeepDive={deepDive}
+                  contextExcerpt={contextExcerpt}
+                  onTryCode={onTryCode}
+                />
+              )}
             </div>
           )}
 
-          {/* Texto Real del Libro Original (curado en Libro + Guia; integro en Libro Original) */}
+          {/* Texto Real del Libro Original (con auto-enlazado de diccionario también) */}
           {(readerTab === 'COMBINED' || readerTab === 'BOOK') && (
             <div className="rounded-xl border border-subtle bg-surface/40 p-4">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-subtle pb-2">
@@ -386,8 +731,8 @@ export function EditorialReader({
                         ? sourceBookMarkdown
                         : excerptMarkdown
                     }
-                    glossary={cartridge.glossary}
-                    onTermClick={setActiveGlossaryTerm}
+                    autoLinkTargets={autoLinkTargets}
+                    onConceptKeyClick={handleConceptKeyClick}
                     onTryCode={onTryCode}
                   />
                   {readerTab === 'COMBINED' && isBookTruncated && !expandFullBookPassage && (
@@ -424,7 +769,7 @@ export function EditorialReader({
           {isLessonEndReached && takeaways && takeaways.length > 0 && (
             <div className="rounded-xl border border-success/40 bg-success/5 p-3">
               <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-success">
-                <CheckCircle2 size={12} /> Puntos clave del modulo
+                <CheckCircle2 size={12} /> Puntos clave del módulo
               </p>
               <ul className="space-y-1 text-xs text-primary">
                 {takeaways.map((item, idx) => (

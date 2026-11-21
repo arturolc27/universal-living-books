@@ -383,6 +383,41 @@ export function sanitizeLesson(
     }
   }
 
+  const rawDeepDive = lesson.deepDive as Record<string, unknown> | undefined;
+  const deepDive =
+    rawDeepDive &&
+    typeof rawDeepDive === 'object' &&
+    typeof rawDeepDive.internalMechanics === 'string' &&
+    rawDeepDive.internalMechanics.trim().length > 0
+      ? {
+          internalMechanics: rawDeepDive.internalMechanics.trim(),
+          edgeCases: Array.isArray(rawDeepDive.edgeCases)
+            ? rawDeepDive.edgeCases.map(String).filter(Boolean)
+            : [],
+          commonPitfalls: Array.isArray(rawDeepDive.commonPitfalls)
+            ? rawDeepDive.commonPitfalls.map(String).filter(Boolean)
+            : [],
+          realWorldContrast:
+            typeof rawDeepDive.realWorldContrast === 'string' && rawDeepDive.realWorldContrast.trim()
+              ? rawDeepDive.realWorldContrast.trim()
+              : 'Aplicar buenas prácticas y pruebas unitarias de casos borde.',
+          codeExample:
+            typeof rawDeepDive.codeExample === 'string' && rawDeepDive.codeExample.trim()
+              ? rawDeepDive.codeExample.trim()
+              : undefined,
+        }
+      : undefined;
+
+  const exerciseBank = Array.isArray(lesson.exerciseBank)
+    ? lesson.exerciseBank
+        .map((b, i) => sanitizeBlock(b, 100 + i))
+        .filter((b): b is LessonBlock => b !== null)
+    : undefined;
+
+  const competencyIds = Array.isArray(lesson.competencyIds)
+    ? lesson.competencyIds.map(String).filter(Boolean)
+    : undefined;
+
   const sanitized: MicroLesson & { extractedGlossary?: Record<string, unknown> } = {
     lessonId:
       typeof lesson.lessonId === 'string' && lesson.lessonId
@@ -403,6 +438,9 @@ export function sanitizeLesson(
       : undefined,
     sourceBookMarkdown,
     sourcePageRange,
+    deepDive,
+    competencyIds,
+    exerciseBank: exerciseBank && exerciseBank.length > 0 ? exerciseBank : undefined,
     blocks,
   };
 

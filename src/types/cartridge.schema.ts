@@ -29,12 +29,24 @@ export const RuntimeRequirementsSchema = z.object({
   virtualFileSystemSeed: z.record(z.string(), z.string()),
 });
 
+export const DeepDiveSectionSchema = z.object({
+  internalMechanics: z.string().min(1),
+  edgeCases: z.array(z.string()),
+  commonPitfalls: z.array(z.string()),
+  realWorldContrast: z.string().min(1),
+  codeExample: z.string().optional(),
+});
+
 export const GlossaryEntrySchema = z.object({
   term: z.string().min(1),
   definition: z.string().min(1),
   chapterIntroduced: z.number().int().nonnegative(),
   pageRef: z.number().int().positive().optional(),
   snippet: z.string().optional(),
+  aliases: z.array(z.string()).optional(),
+  competencyIds: z.array(z.string()).optional(),
+  lessonId: z.string().optional(),
+  deepDive: DeepDiveSectionSchema.optional(),
 });
 
 export const AchievementSpecSchema = z.object({
@@ -70,6 +82,7 @@ const BaseBlockFields = {
   blockId: z.string().min(1),
   gatesNextBlock: z.boolean().optional(),
   conceptTags: z.array(z.string()).optional(),
+  competencyIds: z.array(z.string()).optional(),
   misconceptionId: PythonMisconceptionSchema.optional(),
   difficulty: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
 };
@@ -200,6 +213,7 @@ export const CodeLabBlockSchema = z.object({
   scaffoldMode: z.enum(['FREE_SANDBOX', 'FDR_5_STEPS', 'MULTI_FILE_PROJECT']),
   labPhase: z.enum(['MODIFY', 'FADED', 'MAKE']).optional(),
   starterCode: z.string(),
+  referenceSolution: z.string().optional(),
   targetFileName: z.string().optional(),
   unitTestCode: z.string(),
   hiddenTestCode: z.string().optional(),
@@ -222,6 +236,7 @@ export const AstChallengeBlockSchema = z.object({
   title: z.string().min(1),
   instructions: z.string().min(1),
   starterCode: z.string(),
+  referenceSolution: z.string().optional(),
   astConstraints: z.object({
     requiredNodeTypes: z.array(z.string()),
     forbiddenNodeTypes: z.array(z.string()).optional(),
@@ -324,6 +339,7 @@ export const FlashcardBlockSchema = z.object({
   backMarkdown: z.string().min(1),
   codeExample: z.string().optional(),
   tags: z.array(z.string()),
+  conceptTerm: z.string().optional(),
   sourceBlockId: z.string().optional(),
 });
 
@@ -361,6 +377,9 @@ export const MicroLessonSchema = z.object({
   takeaways: z.array(z.string()).optional(),
   sourceBookMarkdown: z.string().optional(),
   sourcePageRange: z.string().optional(),
+  deepDive: DeepDiveSectionSchema.optional(),
+  competencyIds: z.array(z.string()).optional(),
+  exerciseBank: z.array(LessonBlockSchema).optional(),
   blocks: z.array(LessonBlockSchema).min(1),
 });
 
